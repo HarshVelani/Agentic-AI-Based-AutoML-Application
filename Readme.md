@@ -1,4 +1,3 @@
-Of course! Here is a detailed and well-structured `readme.md` file for your AutoDS project, complete with explanations, diagrams, and instructions suitable for a GitHub repository.
 
 ---
 
