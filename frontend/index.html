@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic ML Workflow</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 90%;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 5px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2c3e50, #34495e);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            font-weight: 300;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            padding: 30px;
+            min-height: 600px;
+        }
+
+        .input-section {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            width: auto;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        }
+
+        .output-section {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            width: 1000px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        }
+
+        .section-title {
+            font-size: 1.4em;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #34495e;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .file-input-button {
+            display: block;
+            width: 100%;
+            padding: 12px 20px;
+            background: linear-gradient(135deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .file-input-button:hover {
+            background: linear-gradient(135deg, #2980b9, #1f4e79);
+            transform: translateY(-2px);
+        }
+
+        .file-name {
+            margin-top: 10px;
+            padding: 8px 12px;
+            background: #e8f5e8;
+            border-radius: 5px;
+            font-size: 14px;
+            color: #27ae60;
+        }
+
+        select, input[type="text"], textarea {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s ease;
+            background: white;
+        }
+
+        select:focus, input[type="text"]:focus, textarea:focus {
+            outline: none;
+            border-color: #3498db;
+            box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .checkbox-group input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #e74c3c, #c0392b);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #c0392b, #a93226);
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary {
+            background: linear-gradient(135deg, #95a5a6, #7f8c8d);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: linear-gradient(135deg, #7f8c8d, #6c7b7d);
+            transform: translateY(-2px);
+        }
+
+        .btn-download {
+            background: linear-gradient(135deg, #27ae60, #229954);
+            color: white;
+            text-decoration: none;
+            display: inline-block;
+            margin: 5px;
+        }
+
+        .btn-download:hover {
+            background: linear-gradient(135deg, #229954, #1e8449);
+            transform: translateY(-2px);
+            text-decoration: none;
+            color: white;
+        }
+
+        .btn:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            margin: 10px 0;
+        }
+
+        .status-pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status-running {
+            background: #cce5ff;
+            color: #0066cc;
+            animation: pulse 2s infinite;
+        }
+
+        .status-completed {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status-failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2980b9);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+        }
+
+        .output-tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            color: #7f8c8d;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            color: #3498db;
+            border-bottom-color: #3498db;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .code-container {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 400px;
+
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .metric-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .metric-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #3498db;
+            margin-bottom: 5px;
+        }
+
+        .metric-label {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+
+            /* table-layout: fixed; */
+        }
+
+        .data-table th {
+            background: #34495e;
+            color: white;
+            padding: 12px;
+            text-align: left;
+        }
+
+        .data-table td {
+            padding: 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .data-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .markdown-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+            max-height: 500px;
+            overflow-y: auto;
+            line-height: 1.6;
+        }
+
+        .markdown-content h1, .markdown-content h2, .markdown-content h3 {
+            color: #2c3e50;
+            margin-top: 20px;
+            margin-bottom: 10px;
+        }
+
+        .markdown-content h1 { font-size: 1.8em; }
+        .markdown-content h2 { font-size: 1.5em; }
+        .markdown-content h3 { font-size: 1.3em; }
+
+        .markdown-content p {
+            margin-bottom: 15px;
+        }
+
+        .markdown-content ul, .markdown-content ol {
+            margin-left: 20px;
+            margin-bottom: 15px;
+        }
+
+        .markdown-content code {
+            background: #f4f4f4;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border-left: 4px solid #dc3545;
+        }
+
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            border-left: 4px solid #28a745;
+        }
+
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+                gap: 20px;
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Agentic ML Workflow</h1>
+            <p>Automated Machine Learning Pipeline with AI-Powered Analysis</p>
+        </div>
+
+        <div class="main-content">
+            <!-- Input Section -->
+            <div class="input-section">
+                <h2 class="section-title">📊 Dataset Configuration</h2>
+                
+                <form id="mlForm">
+                    <div class="form-group">
+                        <label for="fileInput">📁 Select Dataset File:</label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="fileInput" class="file-input" accept=".csv,.xlsx,.xls" required>
+                            <button type="button" class="file-input-button" onclick="document.getElementById('fileInput').click()">
+                                Choose File (CSV, XLSX, XLS)
+                            </button>
+                        </div>
+                        <div id="fileName" class="file-name hidden"></div>
+                        <button type="button" id="previewBtn" class="btn btn-secondary hidden" onclick="previewData()">
+                            👁️ Preview Data (First 5 Rows)
+                        </button>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="targetColumn">🎯 Target Column:</label>
+                        <select id="targetColumn" required disabled>
+                            <option value="">Select target column...</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="problemType">🔍 Problem Type (Optional):</label>
+                        <input type="text" id="problemType" placeholder="e.g., classification, regression (auto-detect if empty)">
+                    </div>
+
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="tuneModel">
+                        <label for="tuneModel">⚙️ Enable Model Hyperparameter Tuning</label>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="userComments">💭 Comments/Description:</label>
+                        <textarea id="userComments" placeholder="Describe your dataset or any specific requirements..."></textarea>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary" id="trainBtn">
+                        🚀 Start ML Training
+                    </button>
+                </form>
+
+                <div id="statusSection" class="hidden">
+                    <h3>📈 Training Status</h3>
+                    <div id="statusIndicator"></div>
+                    <div class="progress-bar">
+                        <div id="progressFill" class="progress-fill" style="width: 0%"></div>
+                    </div>
+                    <div id="statusMessage"></div>
+                </div>
+            </div>
+
+            <!-- Output Section -->
+            <div class="output-section">
+                <h2 class="section-title">📋 Results & Analysis</h2>
+                
+                <div class="output-tabs">
+                    <button class="tab active" onclick="switchTab('code')">💻 Generated Code</button>
+                    <button class="tab" onclick="switchTab('metrics')">📊 Performance</button>
+                    <button class="tab" onclick="switchTab('summary')">📝 AI Summary</button>
+                    <!-- <button class="tab" onclick="switchTab('data')">📋 Data Preview</button> -->
+                    <button class="tab" onclick="switchTab('data', this)">📋 Data Preview</button>
+
+                </div>
+
+                <div id="codeTab" class="tab-content active">
+                    <div id="codeContainer" class="code-container">
+                        <!-- Generated code will appear here -->
+                        <div style="text-align: center; color: #7f8c8d; padding: 50px;">
+                            🔄 Run a training job to see generated code...
+                        </div>
+                    </div>
+                    <div id="downloadButtons" class="hidden" style="margin-top: 15px;">
+                        <a id="downloadCodeBtn" class="btn btn-download" download>
+                            ⬇️ Download Code (.py)
+                        </a>
+                    </div>
+                </div>
+
+                <div id="metricsTab" class="tab-content">
+                    <div id="metricsContainer">
+                        <div style="text-align: center; color: #7f8c8d; padding: 50px;">
+                            📈 Performance metrics will appear after training completion...
+                        </div>
+                    </div>
+                </div>
+
+                <div id="summaryTab" class="tab-content">
+                    <div id="summaryContainer" class="markdown-content">
+                        <div style="text-align: center; color: #7f8c8d; padding: 50px; height: 95%;">
+                            🤖 AI-generated summary will appear after analysis...
+                        </div>
+                    </div>
+                    <div id="summaryDownloadButtons" class="hidden" style="margin-top: 15px;">
+                        <a id="downloadSummaryBtn" class="btn btn-download" download>
+                            ⬇️ Download AI Summary (.md)
+                        </a>
+                        <a id="downloadModelBtn" class="btn btn-download" download>
+                            📦 Download Model (.zip)
+                        </a>
+                    </div>
+                </div>
+
+                <div id="dataTab" class="tab-content">
+                    <div id="dataPreviewContainer">
+                        <div style="text-align: center; color: #7f8c8d; padding: 50px;">
+                            👁️ Click "Preview Data" to see first 5 rows of your dataset...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000'; // Change this to your API URL
+        let currentJobId = null;
+        let pollingInterval = null;
+
+        // Initialize event listeners
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+        document.getElementById('mlForm').addEventListener('submit', handleFormSubmit);
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            const fileName = document.getElementById('fileName');
+            const previewBtn = document.getElementById('previewBtn');
+            const targetSelect = document.getElementById('targetColumn');
+
+            if (file) {
+                fileName.textContent = `Selected: ${file.name}`;
+                fileName.classList.remove('hidden');
+                previewBtn.classList.remove('hidden');
+                
+                // Enable target column selection after file is loaded
+                loadColumns(file);
+            } else {
+                fileName.classList.add('hidden');
+                previewBtn.classList.add('hidden');
+                targetSelect.disabled = true;
+                targetSelect.innerHTML = '<option value="">Select target column...</option>';
+            }
+        }
+
+        async function loadColumns(file) {
+            const targetSelect = document.getElementById('targetColumn');
+            
+            try {
+                // For demo purposes, we'll extract column names from the file
+                // In a real implementation, you might want to send the file to the backend first
+                const formData = new FormData();
+                formData.append('file', file);
+
+                // This is a simplified approach - you might want to create a separate endpoint for column extraction
+                const text = await file.text();
+                const lines = text.split('\n');
+                if (lines.length > 0) {
+                    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+                    
+                    targetSelect.innerHTML = '<option value="">Select target column...</option>';
+                    headers.forEach(header => {
+                        const option = document.createElement('option');
+                        option.value = header;
+                        option.textContent = header;
+                        targetSelect.appendChild(option);
+                    });
+                    targetSelect.disabled = false;
+                }
+            } catch (error) {
+                console.error('Error loading columns:', error);
+                showError('Failed to load columns from file');
+            }
+        }
+
+        async function previewData() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showError('Please select a file first');
+                return;
+            }
+
+            try {
+                const text = await file.text();
+                const lines = text.split('\n').slice(0, 6); // Header + 5 rows
+                const data = lines.map(line => line.split(',').map(cell => cell.trim().replace(/"/g, '')));
+                
+                if (data.length < 2) {
+                    showError('File does not contain enough data');
+                    return;
+                }
+
+                const headers = data[0];
+                const rows = data.slice(1);
+
+                let tableHTML = '<table class="data-table"><thead><tr>';
+                headers.forEach(header => {
+                    tableHTML += `<th>${header}</th>`;
+                });
+                tableHTML += '</tr></thead><tbody>';
+
+                rows.forEach(row => {
+                    tableHTML += '<tr>';
+                    row.forEach(cell => {
+                        tableHTML += `<td>${cell}</td>`;
+                    });
+                    tableHTML += '</tr>';
+                });
+
+                tableHTML += '</tbody></table>';
+                
+                document.getElementById('dataPreviewContainer').innerHTML = tableHTML;
+                switchTab('data');
+                
+            } catch (error) {
+                console.error('Error previewing data:', error);
+                showError('Failed to preview data');
+            }
+        }
+
+        async function handleFormSubmit(event) {
+            event.preventDefault();
+            
+            const fileInput = document.getElementById('fileInput');
+            const targetColumn = document.getElementById('targetColumn').value;
+            const problemType = document.getElementById('problemType').value;
+            const tuneModel = document.getElementById('tuneModel').checked;
+            const userComments = document.getElementById('userComments').value;
+
+            if (!fileInput.files[0]) {
+                showError('Please select a file');
+                return;
+            }
+
+            if (!targetColumn) {
+                showError('Please select a target column');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            formData.append('target_column', targetColumn);
+            formData.append('problem_type', problemType || 'auto');
+            formData.append('tune_model', tuneModel);
+            formData.append('user_comments', userComments);
+
+            try {
+                document.getElementById('trainBtn').disabled = true;
+                document.getElementById('trainBtn').innerHTML = '<span class="loading-spinner"></span> Training...';
+                
+                const response = await fetch(`${API_BASE}/train`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const result = await response.json();
+                currentJobId = result.job_id;
+                
+                showSuccess(`Training job submitted successfully! Job ID: ${currentJobId}`);
+                document.getElementById('statusSection').classList.remove('hidden');
+                
+                // Start polling for status
+                startStatusPolling();
+                
+            } catch (error) {
+                console.error('Error submitting job:', error);
+                showError('Failed to submit training job: ' + error.message);
+                document.getElementById('trainBtn').disabled = false;
+                document.getElementById('trainBtn').innerHTML = '🚀 Start ML Training';
+            }
+        }
+
+        function startStatusPolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+            
+            pollingInterval = setInterval(async () => {
+                if (!currentJobId) return;
+                
+                try {
+                    const response = await fetch(`${API_BASE}/jobs/${currentJobId}`);
+                    if (!response.ok) throw new Error('Failed to fetch job status');
+                    
+                    const status = await response.json();
+                    updateJobStatus(status);
+                    
+                    if (status.status === 'completed' || status.status === 'failed') {
+                        clearInterval(pollingInterval);
+                        document.getElementById('trainBtn').disabled = false;
+                        document.getElementById('trainBtn').innerHTML = '🚀 Start ML Training';
+                        
+                        if (status.status === 'completed') {
+                            loadJobResults(currentJobId);
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error polling job status:', error);
+                }
+            }, 3000); // Poll every 3 seconds
+        }
+
+        function updateJobStatus(status) {
+            const statusIndicator = document.getElementById('statusIndicator');
+            const progressFill = document.getElementById('progressFill');
+            const statusMessage = document.getElementById('statusMessage');
+
+            statusIndicator.className = `status-indicator status-${status.status}`;
+            statusIndicator.textContent = status.status.toUpperCase();
+
+            const progress = status.progress || 0;
+            progressFill.style.width = `${progress * 100}%`;
+
+            let message = '';
+            switch (status.status) {
+                case 'pending':
+                    message = 'Job is queued for processing...';
+                    break;
+                case 'running':
+                    message = 'ML pipeline is running. This may take a few minutes...';
+                    break;
+                case 'completed':
+                    message = 'Training completed successfully!';
+                    break;
+                case 'failed':
+                    message = `Training failed: ${status.error || 'Unknown error'}`;
+                    break;
+            }
+            statusMessage.textContent = message;
+        }
+
+        async function loadJobResults(jobId) {
+            try {
+                // Load generated code
+                const codeResponse = await fetch(`${API_BASE}/jobs/${jobId}/code`);
+                if (codeResponse.ok) {
+                    const codeText = await codeResponse.text();
+                    document.getElementById('codeContainer').textContent = codeText;
+                    
+                    // Setup download button
+                    const downloadCodeBtn = document.getElementById('downloadCodeBtn');
+                    downloadCodeBtn.href = `${API_BASE}/jobs/${jobId}/code`;
+                    downloadCodeBtn.download = `ml_code_${jobId}.py`;
+                    document.getElementById('downloadButtons').classList.remove('hidden');
+                }
+
+                // Load job status to get metrics
+                const statusResponse = await fetch(`${API_BASE}/jobs/${jobId}`);
+                if (statusResponse.ok) {
+                    const status = await statusResponse.json();
+                    displayMetrics(status.results);
+                }
+
+                // Load AI summary
+                const summaryResponse = await fetch(`${API_BASE}/jobs/${jobId}/ai_summary`);
+                if (summaryResponse.ok) {
+                    const summaryText = await summaryResponse.text();
+                    renderMarkdown(summaryText);
+                    
+                    // Setup download buttons
+                    document.getElementById('downloadSummaryBtn').href = `${API_BASE}/jobs/${jobId}/ai_summary`;
+                    document.getElementById('downloadSummaryBtn').download = `ai_summary_${jobId}.md`;
+                    
+                    document.getElementById('downloadModelBtn').href = `${API_BASE}/jobs/${jobId}/model`;
+                    document.getElementById('downloadModelBtn').download = `model_${jobId}.zip`;
+                    
+                    document.getElementById('summaryDownloadButtons').classList.remove('hidden');
+                }
+
+            } catch (error) {
+                console.error('Error loading job results:', error);
+                showError('Failed to load some results');
+            }
+        }
+
+        function displayMetrics(results) {
+            if (!results || !results.metrics) {
+                document.getElementById('metricsContainer').innerHTML = 
+                    '<div style="text-align: center; color: #7f8c8d; padding: 50px;">No metrics available</div>';
+                return;
+            }
+
+            const metrics = results.metrics;
+            const metricsContainer = document.getElementById('metricsContainer');
+            
+            let metricsHTML = '<div class="metrics-grid">';
+            
+            Object.entries(metrics).forEach(([key, value]) => {
+                if (typeof value === 'number') {
+                    metricsHTML += `
+                        <div class="metric-card">
+                            <div class="metric-value">${value.toFixed(4)}</div>
+                            <div class="metric-label">${key.replace(/_/g, ' ').toUpperCase()}</div>
+                        </div>
+                    `;
+                }
+            });
+            
+            metricsHTML += '</div>';
+            
+            if (results.best_model_name) {
+                metricsHTML += `
+                    <div style="margin-top: 20px; padding: 15px; background: white; border-radius: 8px; box-shadow: 0 3px 10px rgba(0,0,0,0.1);">
+                        <h3 style="color: #2c3e50; margin-bottom: 10px;">🏆 Best Model</h3>
+                        <p style="font-size: 18px; color: #27ae60; font-weight: bold;">${results.best_model_name}</p>
+                    </div>
+                `;
+            }
+            
+            metricsContainer.innerHTML = metricsHTML;
+        }
+
+        // function renderMarkdown(markdownText) {
+        //     // Simple markdown to HTML converter (basic implementation)
+        //     let html = markdownText
+        //         .replace(/^# (.*$)/gm, '<h1>$1</h1>')
+        //         .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+        //         .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+        //         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        //         .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        //         .replace(/`(.*?)`/g, '<code>$1</code>')
+        //         .replace(/^\- (.*$)/gm, '<li>$1</li>')
+        //         .replace(/^\d+\. (.*$)/gm, '<li>$1</li>')
+        //         .replace(/\n\n/g, '</p><p>')
+        //         .replace(/^(?!<[h|l|p])/gm, '<p>')
+        //         .replace(/(?<!>)$/gm, '</p>');
+
+        //     // Wrap consecutive <li> elements in <ul> tags
+        //     html = html.replace(/(<li>.*?<\/li>)/gs, (match) => {
+        //         return '<ul>' + match + '</ul>';
+        //     });
+
+        //     // Clean up extra <p> tags
+        //     html = html.replace(/<p><\/p>/g, '');
+        //     html = html.replace(/<p>(<h[1-6]>)/g, '$1');
+        //     html = html.replace(/(<\/h[1-6]>)<\/p>/g, '$1');
+        //     html = html.replace(/<p>(<ul>)/g, '$1');
+        //     html = html.replace(/(<\/ul>)<\/p>/g, '$1');
+
+        //     document.getElementById('summaryContainer').innerHTML = html;
+        // }
+
+        // function renderMarkdown(markdownText) {
+        //     let html = markdownText;
+
+        //     // --- Tables ---
+        //     html = html.replace(
+        //         /((?:\|.+\|\r?\n)+)(?=\r?\n|$)/g,
+        //         (match) => {
+        //             const rows = match.trim().split(/\r?\n/);
+        //             if (rows.length < 2) return match;
+
+        //             // Header row
+        //             const headers = rows[0].split('|').filter(h => h.trim() !== '');
+        //             let thead = '<tr>' + headers.map(h => `<th>${h.trim()}</th>`).join('') + '</tr>';
+
+        //             // Data rows (skip header + separator)
+        //             const bodyRows = rows.slice(2).map(r => {
+        //                 const cols = r.split('|').filter(c => c.trim() !== '');
+        //                 return '<tr>' + cols.map(c => `<td>${c.trim()}</td>`).join('') + '</tr>';
+        //             }).join('');
+
+        //             return `<table class="data-table"><thead>${thead}</thead><tbody>${bodyRows}</tbody></table>`;
+        //         }
+        //     );
+
+        //     // --- Headings ---
+        //     html = html
+        //         .replace(/^### (.*$)/gm, '<h3>$1</h3>')
+        //         .replace(/^## (.*$)/gm, '<h2>$1</h2>')
+        //         .replace(/^# (.*$)/gm, '<h1>$1</h1>');
+
+        //     // --- Bold / Italic / Code ---
+        //     html = html
+        //         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        //         .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        //         .replace(/`(.*?)`/g, '<code>$1</code>');
+
+        //     // --- Lists ---
+        //     html = html
+        //         .replace(/^\* (.*$)/gm, '<li>$1</li>')
+        //         .replace(/^\- (.*$)/gm, '<li>$1</li>')
+        //         .replace(/^\d+\. (.*$)/gm, '<li>$1</li>');
+
+        //     // Wrap <li> in <ul> or <ol>
+        //     html = html.replace(/(<li>.*?<\/li>)/gs, '<ul>$1</ul>');
+
+        //     // --- Paragraphs ---
+        //     html = html
+        //         .replace(/\n\n/g, '</p><p>')
+        //         .replace(/^(?!<[h|l|p|t])/gm, '<p>')
+        //         .replace(/(?<!>)$/gm, '</p>');
+
+        //     // Clean up empty <p>
+        //     html = html.replace(/<p><\/p>/g, '');
+
+        //     document.getElementById('summaryContainer').innerHTML = html;
+        // }
+
+
+
+
+        function renderMarkdown(markdownText) {
+        // escape HTML to avoid injection
+        const escapeHtml = s => String(s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+
+        // check if a line is a table line (starts/ends with a pipe)
+        const isTableLine = (line) => /^\s*\|.*\|\s*$/.test(line);
+
+        // check if a cell (after trim) is a markdown separator (--- or :---:)
+        const isSeparatorCell = (cell) => /^:?\s*-{3,}\s*:?$/.test(cell.trim());
+
+        // parse contiguous table lines into an HTML table
+        function parseTableBlock(lines) {
+            // Convert each line into an array of cells, preserving empty cells.
+            // Remove only the outer leading/trailing pipe, then split on '|'
+            const rows = lines.map(line => {
+            let inner = line.trim();
+            if (inner.startsWith("|")) inner = inner.slice(1);
+            if (inner.endsWith("|")) inner = inner.slice(0, -1);
+            // split keeps empty strings for consecutive pipes -> preserves blank cells
+            return inner.split("|").map(cell => cell.replace(/^\s+|\s+$/g, "")); // trim each cell but keep empty
+            });
+
+            // determine max columns
+            const colCount = Math.max(...rows.map(r => r.length), 0);
+
+            // pad rows to colCount
+            rows.forEach(r => { while (r.length < colCount) r.push(""); });
+
+            // detect header: second row is a separator row (---)
+            let header = null;
+            let bodyStart = 0;
+            if (rows.length >= 2 && rows[1].every(isSeparatorCell)) {
+            header = rows[0];
+            bodyStart = 2; // skip header + separator
+            }
+
+            const thead = header
+            ? `<thead><tr>${header.map(h => `<th>${escapeHtml(h || '') || '&nbsp;'}</th>`).join("")}</tr></thead>`
+            : "";
+
+            const tbody = rows.slice(bodyStart)
+            .map(row => `<tr>${row.map(c => `<td>${escapeHtml(c || '') || '&nbsp;'}</td>`).join("")}</tr>`)
+            .join("");
+
+            return `<table class="data-table">${thead}<tbody>${tbody}</tbody></table>`;
+        }
+
+        // Phase 1: split into lines, find table blocks and convert them first
+        const lines = markdownText.replace(/\r\n/g, "\n").split("\n");
+        const out = [];
+        let i = 0;
+        while (i < lines.length) {
+            if (isTableLine(lines[i])) {
+            const block = [];
+            while (i < lines.length && isTableLine(lines[i])) {
+                block.push(lines[i]);
+                i++;
+            }
+            out.push(parseTableBlock(block));
+            } else {
+            out.push(lines[i]);
+            i++;
+            }
+        }
+
+        let html = out.join("\n");
+
+        // --- basic markdown transforms (safe, applied after table HTML is in place) ---
+        html = html
+            // headings
+            .replace(/^###### (.*)$/gm, "<h6>$1</h6>")
+            .replace(/^##### (.*)$/gm, "<h5>$1</h5>")
+            .replace(/^#### (.*)$/gm, "<h4>$1</h4>")
+            .replace(/^### (.*)$/gm, "<h3>$1</h3>")
+            .replace(/^## (.*)$/gm, "<h2>$1</h2>")
+            .replace(/^# (.*)$/gm, "<h1>$1</h1>")
+            // bold / italic / inline code
+            .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+            .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "<em>$1</em>")
+            .replace(/`([^`]+?)`/g, "<code>$1</code>")
+            // unordered / ordered list items -> <li>
+            .replace(/^\s*-\s+(.+)$/gm, "<li>$1</li>")
+            .replace(/^\s*\*\s+(.+)$/gm, "<li>$1</li>")
+            .replace(/^\s*\d+\.\s+(.+)$/gm, "<li data-ol>$1</li>");
+
+        // group consecutive <li> into <ul> / <ol>
+        html = html
+            // ordered lists
+            .replace(/(?:\s*<li data-ol>[\s\S]*?<\/li>)+/g, (block) => {
+            const items = block.replace(/ data-ol/g, "");
+            return `<ol>${items}</ol>`;
+            })
+            // unordered lists
+            .replace(/(?:\s*<li>[\s\S]*?<\/li>)+/g, (block) => `<ul>${block}</ul>`);
+
+        // wrap plain lines (that are not HTML) in <p>
+        html = html
+            .split("\n")
+            .map(line => {
+            if (!line.trim()) return "";
+            if (/^\s*</.test(line)) return line; // starts with an HTML tag -> leave as-is
+            return `<p>${line}</p>`;
+            })
+            .join("\n");
+
+        // cleanup empty paragraphs
+        html = html.replace(/<p>\s*<\/p>/g, "");
+
+        // inject
+        document.getElementById("summaryContainer").innerHTML = html;
+        }
+
+
+
+
+
+        // function switchTab(tabName) {
+        //     // Hide all tab contents
+        //     const tabContents = document.querySelectorAll('.tab-content');
+        //     tabContents.forEach(content => content.classList.remove('active'));
+
+        //     // Remove active class from all tabs
+        //     const tabs = document.querySelectorAll('.tab');
+        //     tabs.forEach(tab => tab.classList.remove('active'));
+
+        //     // Show selected tab content and mark tab as active
+        //     document.getElementById(tabName + 'Tab').classList.add('active');
+        //     event.target.classList.add('active');
+        // }
+
+        function switchTab(tabName, el=null) {
+        // Hide all tab contents
+        const tabContents = document.querySelectorAll('.tab-content');
+        tabContents.forEach(content => content.classList.remove('active'));
+
+        // Remove active class from all tabs
+        const tabs = document.querySelectorAll('.tab');
+        tabs.forEach(tab => tab.classList.remove('active'));
+
+        // Show selected tab content
+        document.getElementById(tabName + 'Tab').classList.add('active');
+        if (el) el.classList.add('active');
+        }
+
+        function showError(message) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'error-message';
+            errorDiv.textContent = '❌ ' + message;
+            
+            // Insert at the top of the input section
+            const inputSection = document.querySelector('.input-section');
+            inputSection.insertBefore(errorDiv, inputSection.firstChild);
+            
+            // Remove after 5 seconds
+            setTimeout(() => {
+                if (errorDiv.parentNode) {
+                    errorDiv.parentNode.removeChild(errorDiv);
+                }
+            }, 5000);
+        }
+
+        function showSuccess(message) {
+            const successDiv = document.createElement('div');
+            successDiv.className = 'success-message';
+            successDiv.textContent = '✅ ' + message;
+            
+            // Insert at the top of the input section
+            const inputSection = document.querySelector('.input-section');
+            inputSection.insertBefore(successDiv, inputSection.firstChild);
+            
+            // Remove after 5 seconds
+            setTimeout(() => {
+                if (successDiv.parentNode) {
+                    successDiv.parentNode.removeChild(successDiv);
+                }
+            }, 5000);
+        }
+
+        // Enhanced file reading for better column detection
+        async function readFileColumns(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                
+                reader.onload = function(e) {
+                    try {
+                        let columns = [];
+                        
+                        if (file.name.endsWith('.csv')) {
+                            const lines = e.target.result.split('\n');
+                            if (lines.length > 0) {
+                                columns = lines[0].split(',').map(col => col.trim().replace(/"/g, ''));
+                            }
+                        } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                            // For Excel files, we would need a library like SheetJS
+                            // For now, we'll show a message to the user
+                            showError('Excel file detected. Column detection may be limited. Please upload as CSV for better experience.');
+                            resolve([]);
+                            return;
+                        }
+                        
+                        resolve(columns.filter(col => col.length > 0));
+                    } catch (error) {
+                        reject(error);
+                    }
+                };
+                
+                reader.onerror = () => reject(new Error('Failed to read file'));
+                reader.readAsText(file);
+            });
+        }
+
+        // Enhanced file selection handler with better column loading
+        async function handleFileSelect(event) {
+            const file = event.target.files[0];
+            const fileName = document.getElementById('fileName');
+            const previewBtn = document.getElementById('previewBtn');
+            const targetSelect = document.getElementById('targetColumn');
+
+            if (file) {
+                fileName.textContent = `Selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
+                fileName.classList.remove('hidden');
+                previewBtn.classList.remove('hidden');
+                
+                try {
+                    const columns = await readFileColumns(file);
+                    
+                    targetSelect.innerHTML = '<option value="">Select target column...</option>';
+                    columns.forEach(column => {
+                        const option = document.createElement('option');
+                        option.value = column;
+                        option.textContent = column;
+                        targetSelect.appendChild(option);
+                    });
+                    
+                    if (columns.length > 0) {
+                        targetSelect.disabled = false;
+                        showSuccess(`Loaded ${columns.length} columns from the dataset`);
+                    } else {
+                        showError('Could not detect columns. Please ensure the file has a proper header row.');
+                    }
+                } catch (error) {
+                    console.error('Error loading columns:', error);
+                    showError('Failed to read file columns: ' + error.message);
+                }
+            } else {
+                fileName.classList.add('hidden');
+                previewBtn.classList.add('hidden');
+                targetSelect.disabled = true;
+                targetSelect.innerHTML = '<option value="">Select target column...</option>';
+            }
+        }
+
+        // Enhanced data preview with better error handling
+        async function previewData() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showError('Please select a file first');
+                return;
+            }
+
+            try {
+                if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+                    showError('Excel preview not fully supported. Please convert to CSV for better preview.');
+                    return;
+                }
+
+                const text = await file.text();
+                const lines = text.split('\n').filter(line => line.trim().length > 0).slice(0, 6);
+                
+                if (lines.length < 2) {
+                    showError('File does not contain enough data for preview');
+                    return;
+                }
+
+                const data = lines.map(line => {
+                    // Better CSV parsing - handle quotes and commas within fields
+                    const result = [];
+                    let current = '';
+                    let inQuotes = false;
+                    
+                    for (let i = 0; i < line.length; i++) {
+                        const char = line[i];
+                        if (char === '"') {
+                            inQuotes = !inQuotes;
+                        } else if (char === ',' && !inQuotes) {
+                            result.push(current.trim());
+                            current = '';
+                        } else {
+                            current += char;
+                        }
+                    }
+                    result.push(current.trim());
+                    return result;
+                });
+
+                const headers = data[0];
+                const rows = data.slice(1);
+
+                let tableHTML = '<div style="overflow-x: auto;"><table class="data-table"><thead><tr>';
+                headers.forEach(header => {
+                    tableHTML += `<th>${header || 'Unnamed'}</th>`;
+                });
+                tableHTML += '</tr></thead><tbody>';
+
+                rows.forEach(row => {
+                    tableHTML += '<tr>';
+                    headers.forEach((_, index) => {
+                        const cell = row[index] || '';
+                        tableHTML += `<td>${cell.length > 50 ? cell.substring(0, 50) + '...' : cell}</td>`;
+                    });
+                    tableHTML += '</tr>';
+                });
+
+                tableHTML += '</tbody></table></div>';
+                tableHTML += `<p style="margin-top: 10px; color: #666; font-size: 14px;">
+                    Showing first ${rows.length} rows of ${headers.length} columns. 
+                    Long text is truncated for display.
+                </p>`;
+                
+                document.getElementById('dataPreviewContainer').innerHTML = tableHTML;
+                switchTab('data');
+                showSuccess('Data preview loaded successfully');
+                
+            } catch (error) {
+                console.error('Error previewing data:', error);
+                showError('Failed to preview data: ' + error.message);
+            }
+        }
+
+        // Improved job results loading with better error handling
+        async function loadJobResults(jobId) {
+            const loadingTasks = [];
+            
+            // Load generated code
+            loadingTasks.push(
+                fetch(`${API_BASE}/jobs/${jobId}/code`)
+                    .then(async response => {
+                        if (response.ok) {
+                            const codeText = await response.text();
+                            document.getElementById('codeContainer').textContent = codeText;
+                            
+                            const downloadCodeBtn = document.getElementById('downloadCodeBtn');
+                            downloadCodeBtn.href = `${API_BASE}/jobs/${jobId}/code`;
+                            downloadCodeBtn.download = `ml_code_${jobId}.py`;
+                            document.getElementById('downloadButtons').classList.remove('hidden');
+                            return { type: 'code', success: true };
+                        }
+                        return { type: 'code', success: false, error: 'Code not available' };
+                    })
+                    .catch(error => ({ type: 'code', success: false, error: error.message }))
+            );
+
+            // Load job status and metrics
+            loadingTasks.push(
+                fetch(`${API_BASE}/jobs/${jobId}`)
+                    .then(async response => {
+                        if (response.ok) {
+                            const status = await response.json();
+                            displayMetrics(status.results);
+                            return { type: 'metrics', success: true };
+                        }
+                        return { type: 'metrics', success: false, error: 'Metrics not available' };
+                    })
+                    .catch(error => ({ type: 'metrics', success: false, error: error.message }))
+            );
+
+            // Load AI summary
+            loadingTasks.push(
+                fetch(`${API_BASE}/jobs/${jobId}/ai_summary`)
+                    .then(async response => {
+                        if (response.ok) {
+                            const summaryText = await response.text();
+                            renderMarkdown(summaryText);
+                            
+                            document.getElementById('downloadSummaryBtn').href = `${API_BASE}/jobs/${jobId}/ai_summary`;
+                            document.getElementById('downloadSummaryBtn').download = `ai_summary_${jobId}.md`;
+                            
+                            document.getElementById('downloadModelBtn').href = `${API_BASE}/jobs/${jobId}/model`;
+                            document.getElementById('downloadModelBtn').download = `model_${jobId}.zip`;
+                            
+                            document.getElementById('summaryDownloadButtons').classList.remove('hidden');
+                            return { type: 'summary', success: true };
+                        }
+                        return { type: 'summary', success: false, error: 'Summary not available' };
+                    })
+                    .catch(error => ({ type: 'summary', success: false, error: error.message }))
+            );
+
+            try {
+                const results = await Promise.all(loadingTasks);
+                const failures = results.filter(r => !r.success);
+                
+                if (failures.length > 0) {
+                    const failedTypes = failures.map(f => f.type).join(', ');
+                    showError(`Some results failed to load: ${failedTypes}`);
+                } else {
+                    showSuccess('All results loaded successfully!');
+                }
+            } catch (error) {
+                console.error('Error loading job results:', error);
+                showError('Failed to load job results');
+            }
+        }
+
+        // Add keyboard shortcuts
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey || e.metaKey) {
+                switch(e.key) {
+                    case '1':
+                        e.preventDefault();
+                        switchTab('code');
+                        break;
+                    case '2':
+                        e.preventDefault();
+                        switchTab('metrics');
+                        break;
+                    case '3':
+                        e.preventDefault();
+                        switchTab('summary');
+                        break;
+                    case '4':
+                        e.preventDefault();
+                        switchTab('data');
+                        break;
+                }
+            }
+        });
+
+        // Initialize tooltips and help text
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add help tooltips
+            const helpTexts = {
+                'problemType': 'Leave empty for automatic detection. Specify "classification" or "regression" if known.',
+                'tuneModel': 'Enable this to perform hyperparameter optimization (will take longer but may improve results)',
+                'userComments': 'Provide context about your data to help the AI generate better analysis'
+            };
+
+            Object.entries(helpTexts).forEach(([id, text]) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.title = text;
+                }
+            });
+
+            // Show API connection status
+            checkAPIConnection();
+        });
+
+        async function checkAPIConnection() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                if (response.ok) {
+                    showSuccess('Connected to ML API successfully');
+                } else {
+                    showError('API connection failed. Please check if the backend is running.');
+                }
+            } catch (error) {
+                showError('Cannot connect to ML API. Please ensure the backend server is running on ' + API_BASE);
+            }
+        }
+
+        // Re-assign the improved event listeners
+        document.getElementById('fileInput').removeEventListener('change', handleFileSelect);
+        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
+    </script>
+</body>
+</html>
