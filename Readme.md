@@ -75,7 +75,7 @@ graph TD
 The heart of AutoDS is a stateful graph managed by LangGraph. When a job is submitted, the workflow progresses through a series of specialized agents, each performing a distinct step of the ML process.
 
 ```mermaid
-graph LR
+graph TD
     Start((Start)) --> A[Schema Analyzer];
     A -->|Data Schema| B[Problem Classifier];
     B -->|Problem Type| C[Pipeline Generator];
