@@ -10,9 +10,12 @@ backend/model
 backend/results
 backend/uploads
 backend/workflow_info
-ds_env
+backend/my_env
+backend/session_data
+backend/test.py
 Setup_files_claude
 .env 
+myenv
 py_test.py
 Docker_Readme.md
 requirement.txt

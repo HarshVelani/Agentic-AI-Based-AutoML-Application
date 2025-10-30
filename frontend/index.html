@@ -22,7 +22,7 @@
             max-width: 90%;
             margin: 0 auto;
             background: rgba(255, 255, 255, 0.95);
-            border-radius: 5px;
+            border-radius: 15px;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
             overflow: hidden;
         }
@@ -47,7 +47,7 @@
 
         .main-content {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 2fr;
             gap: 30px;
             padding: 30px;
             min-height: 600px;
@@ -57,7 +57,6 @@
             background: #f8f9fa;
             border-radius: 15px;
             padding: 25px;
-            width: auto;
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
         }
 
@@ -65,7 +64,6 @@
             background: #f8f9fa;
             border-radius: 15px;
             padding: 25px;
-            width: 1000px;
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
         }
 
@@ -302,7 +300,6 @@
             font-family: 'Courier New', monospace;
             font-size: 14px;
             max-height: 400px;
-
             overflow-y: auto;
             white-space: pre-wrap;
             line-height: 1.5;
@@ -343,8 +340,6 @@
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
-
-            /* table-layout: fixed; */
         }
 
         .data-table th {
@@ -461,7 +456,7 @@
         </div>
 
         <div class="main-content">
-            <!-- Input Section -->
+            <!-- Input Section - Left Side -->
             <div class="input-section">
                 <h2 class="section-title">📊 Dataset Configuration</h2>
                 
@@ -488,8 +483,12 @@
                     </div>
 
                     <div class="form-group">
-                        <label for="problemType">🔍 Problem Type (Optional):</label>
-                        <input type="text" id="problemType" placeholder="e.g., classification, regression (auto-detect if empty)">
+                        <label for="problemType">🔍 Problem Type:</label>
+                        <select id="problemType">
+                            <option value="auto">Auto-detect</option>
+                            <option value="classification">Classification</option>
+                            <option value="regression">Regression</option>
+                        </select>
                     </div>
 
                     <div class="checkbox-group">
@@ -505,6 +504,9 @@
                     <button type="submit" class="btn btn-primary" id="trainBtn">
                         🚀 Start ML Training
                     </button>
+                    <button type="button" class="btn btn-secondary" id="resetBtn" onclick="resetForm()">
+                        🔄 Reset All
+                    </button>
                 </form>
 
                 <div id="statusSection" class="hidden">
@@ -517,22 +519,19 @@
                 </div>
             </div>
 
-            <!-- Output Section -->
+            <!-- Output Section - Right Side -->
             <div class="output-section">
                 <h2 class="section-title">📋 Results & Analysis</h2>
                 
                 <div class="output-tabs">
-                    <button class="tab active" onclick="switchTab('code')">💻 Generated Code</button>
-                    <button class="tab" onclick="switchTab('metrics')">📊 Performance</button>
-                    <button class="tab" onclick="switchTab('summary')">📝 AI Summary</button>
-                    <!-- <button class="tab" onclick="switchTab('data')">📋 Data Preview</button> -->
+                    <button class="tab active" onclick="switchTab('code', this)">💻 Generated Code</button>
+                    <button class="tab" onclick="switchTab('metrics', this)">📊 Performance</button>
+                    <button class="tab" onclick="switchTab('summary', this)">📝 AI Summary</button>
                     <button class="tab" onclick="switchTab('data', this)">📋 Data Preview</button>
-
                 </div>
 
                 <div id="codeTab" class="tab-content active">
                     <div id="codeContainer" class="code-container">
-                        <!-- Generated code will appear here -->
                         <div style="text-align: center; color: #7f8c8d; padding: 50px;">
                             🔄 Run a training job to see generated code...
                         </div>
@@ -580,11 +579,10 @@
     </div>
 
     <script>
-        const API_BASE = 'http://localhost:8000'; // Change this to your API URL
-        let currentJobId = null;
+        const API_BASE = 'http://localhost:8000';
+        let currentSessionId = null;
         let pollingInterval = null;
 
-        // Initialize event listeners
         document.getElementById('fileInput').addEventListener('change', handleFileSelect);
         document.getElementById('mlForm').addEventListener('submit', handleFormSubmit);
 
@@ -595,11 +593,12 @@
             const targetSelect = document.getElementById('targetColumn');
 
             if (file) {
+                // Reset all fields when new file is selected
+                resetForm(false); // Don't clear file input
+                
                 fileName.textContent = `Selected: ${file.name}`;
                 fileName.classList.remove('hidden');
                 previewBtn.classList.remove('hidden');
-                
-                // Enable target column selection after file is loaded
                 loadColumns(file);
             } else {
                 fileName.classList.add('hidden');
@@ -613,12 +612,6 @@
             const targetSelect = document.getElementById('targetColumn');
             
             try {
-                // For demo purposes, we'll extract column names from the file
-                // In a real implementation, you might want to send the file to the backend first
-                const formData = new FormData();
-                formData.append('file', file);
-
-                // This is a simplified approach - you might want to create a separate endpoint for column extraction
                 const text = await file.text();
                 const lines = text.split('\n');
                 if (lines.length > 0) {
@@ -650,7 +643,7 @@
 
             try {
                 const text = await file.text();
-                const lines = text.split('\n').slice(0, 6); // Header + 5 rows
+                const lines = text.split('\n').slice(0, 6);
                 const data = lines.map(line => line.split(',').map(cell => cell.trim().replace(/"/g, '')));
                 
                 if (data.length < 2) {
@@ -678,7 +671,7 @@
                 tableHTML += '</tbody></table>';
                 
                 document.getElementById('dataPreviewContainer').innerHTML = tableHTML;
-                switchTab('data');
+                switchTab('data', document.querySelectorAll('.tab')[3]);
                 
             } catch (error) {
                 console.error('Error previewing data:', error);
@@ -726,12 +719,11 @@
                 }
 
                 const result = await response.json();
-                currentJobId = result.job_id;
+                currentSessionId = result.session_id;
                 
-                showSuccess(`Training job submitted successfully! Job ID: ${currentJobId}`);
+                showSuccess(`Training session created! Session ID: ${currentSessionId.substring(0, 8)}...`);
                 document.getElementById('statusSection').classList.remove('hidden');
                 
-                // Start polling for status
                 startStatusPolling();
                 
             } catch (error) {
@@ -746,111 +738,106 @@
             if (pollingInterval) clearInterval(pollingInterval);
             
             pollingInterval = setInterval(async () => {
-                if (!currentJobId) return;
+                if (!currentSessionId) return;
                 
                 try {
-                    const response = await fetch(`${API_BASE}/jobs/${currentJobId}`);
-                    if (!response.ok) throw new Error('Failed to fetch job status');
+                    const response = await fetch(`${API_BASE}/sessions/${currentSessionId}`);
+                    if (!response.ok) throw new Error('Failed to fetch session status');
                     
-                    const status = await response.json();
-                    updateJobStatus(status);
+                    const session = await response.json();
+                    updateSessionStatus(session);
                     
-                    if (status.status === 'completed' || status.status === 'failed') {
+                    if (session.status === 'completed' || session.status === 'failed') {
                         clearInterval(pollingInterval);
                         document.getElementById('trainBtn').disabled = false;
                         document.getElementById('trainBtn').innerHTML = '🚀 Start ML Training';
                         
-                        if (status.status === 'completed') {
-                            loadJobResults(currentJobId);
+                        if (session.status === 'completed') {
+                            loadSessionResults(currentSessionId);
                         }
                     }
                 } catch (error) {
-                    console.error('Error polling job status:', error);
+                    console.error('Error polling session status:', error);
                 }
-            }, 3000); // Poll every 3 seconds
+            }, 3000);
         }
 
-        function updateJobStatus(status) {
+        function updateSessionStatus(session) {
             const statusIndicator = document.getElementById('statusIndicator');
             const progressFill = document.getElementById('progressFill');
             const statusMessage = document.getElementById('statusMessage');
 
-            statusIndicator.className = `status-indicator status-${status.status}`;
-            statusIndicator.textContent = status.status.toUpperCase();
+            statusIndicator.className = `status-indicator status-${session.status}`;
+            statusIndicator.textContent = session.status.toUpperCase();
 
-            const progress = status.progress || 0;
+            const progress = session.progress || 0;
             progressFill.style.width = `${progress * 100}%`;
 
             let message = '';
-            switch (status.status) {
+            switch (session.status) {
                 case 'pending':
-                    message = 'Job is queued for processing...';
+                    message = 'Session is queued for processing...';
                     break;
                 case 'running':
-                    message = 'ML pipeline is running. This may take a few minutes...';
+                    message = `ML pipeline is running: ${session.current_step || 'Processing'}...`;
                     break;
                 case 'completed':
                     message = 'Training completed successfully!';
                     break;
                 case 'failed':
-                    message = `Training failed: ${status.error || 'Unknown error'}`;
+                    message = `Training failed: ${session.error_message || 'Unknown error'}`;
                     break;
             }
             statusMessage.textContent = message;
         }
 
-        async function loadJobResults(jobId) {
+        async function loadSessionResults(sessionId) {
             try {
-                // Load generated code
-                const codeResponse = await fetch(`${API_BASE}/jobs/${jobId}/code`);
+                const codeResponse = await fetch(`${API_BASE}/sessions/${sessionId}/code`);
                 if (codeResponse.ok) {
                     const codeText = await codeResponse.text();
                     document.getElementById('codeContainer').textContent = codeText;
                     
-                    // Setup download button
                     const downloadCodeBtn = document.getElementById('downloadCodeBtn');
-                    downloadCodeBtn.href = `${API_BASE}/jobs/${jobId}/code`;
-                    downloadCodeBtn.download = `ml_code_${jobId}.py`;
+                    downloadCodeBtn.href = `${API_BASE}/sessions/${sessionId}/code`;
+                    downloadCodeBtn.download = `ml_code_${sessionId}.py`;
                     document.getElementById('downloadButtons').classList.remove('hidden');
                 }
 
-                // Load job status to get metrics
-                const statusResponse = await fetch(`${API_BASE}/jobs/${jobId}`);
-                if (statusResponse.ok) {
-                    const status = await statusResponse.json();
-                    displayMetrics(status.results);
+                const sessionResponse = await fetch(`${API_BASE}/sessions/${sessionId}`);
+                if (sessionResponse.ok) {
+                    const session = await sessionResponse.json();
+                    displayMetrics(session);
                 }
 
-                // Load AI summary
-                const summaryResponse = await fetch(`${API_BASE}/jobs/${jobId}/ai_summary`);
+                const summaryResponse = await fetch(`${API_BASE}/sessions/${sessionId}/summary`);
                 if (summaryResponse.ok) {
                     const summaryText = await summaryResponse.text();
                     renderMarkdown(summaryText);
                     
-                    // Setup download buttons
-                    document.getElementById('downloadSummaryBtn').href = `${API_BASE}/jobs/${jobId}/ai_summary`;
-                    document.getElementById('downloadSummaryBtn').download = `ai_summary_${jobId}.md`;
+                    document.getElementById('downloadSummaryBtn').href = `${API_BASE}/sessions/${sessionId}/summary`;
+                    document.getElementById('downloadSummaryBtn').download = `ai_summary_${sessionId}.md`;
                     
-                    document.getElementById('downloadModelBtn').href = `${API_BASE}/jobs/${jobId}/model`;
-                    document.getElementById('downloadModelBtn').download = `model_${jobId}.zip`;
+                    document.getElementById('downloadModelBtn').href = `${API_BASE}/sessions/${sessionId}/model`;
+                    document.getElementById('downloadModelBtn').download = `model_${sessionId}.zip`;
                     
                     document.getElementById('summaryDownloadButtons').classList.remove('hidden');
                 }
 
             } catch (error) {
-                console.error('Error loading job results:', error);
+                console.error('Error loading session results:', error);
                 showError('Failed to load some results');
             }
         }
 
-        function displayMetrics(results) {
-            if (!results || !results.metrics) {
+        function displayMetrics(session) {
+            if (!session || !session.metrics) {
                 document.getElementById('metricsContainer').innerHTML = 
                     '<div style="text-align: center; color: #7f8c8d; padding: 50px;">No metrics available</div>';
                 return;
             }
 
-            const metrics = results.metrics;
+            const metrics = session.metrics;
             const metricsContainer = document.getElementById('metricsContainer');
             
             let metricsHTML = '<div class="metrics-grid">';
@@ -868,11 +855,12 @@
             
             metricsHTML += '</div>';
             
-            if (results.best_model_name) {
+            if (session.best_model_name) {
                 metricsHTML += `
                     <div style="margin-top: 20px; padding: 15px; background: white; border-radius: 8px; box-shadow: 0 3px 10px rgba(0,0,0,0.1);">
                         <h3 style="color: #2c3e50; margin-bottom: 10px;">🏆 Best Model</h3>
-                        <p style="font-size: 18px; color: #27ae60; font-weight: bold;">${results.best_model_name}</p>
+                        <p style="font-size: 18px; color: #27ae60; font-weight: bold;">${session.best_model_name}</p>
+                        <p style="color: #7f8c8d; margin-top: 5px;">Problem Type: ${session.inferred_problem_type || 'N/A'}</p>
                     </div>
                 `;
             }
@@ -880,243 +868,109 @@
             metricsContainer.innerHTML = metricsHTML;
         }
 
-        // function renderMarkdown(markdownText) {
-        //     // Simple markdown to HTML converter (basic implementation)
-        //     let html = markdownText
-        //         .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-        //         .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-        //         .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-        //         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        //         .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        //         .replace(/`(.*?)`/g, '<code>$1</code>')
-        //         .replace(/^\- (.*$)/gm, '<li>$1</li>')
-        //         .replace(/^\d+\. (.*$)/gm, '<li>$1</li>')
-        //         .replace(/\n\n/g, '</p><p>')
-        //         .replace(/^(?!<[h|l|p])/gm, '<p>')
-        //         .replace(/(?<!>)$/gm, '</p>');
-
-        //     // Wrap consecutive <li> elements in <ul> tags
-        //     html = html.replace(/(<li>.*?<\/li>)/gs, (match) => {
-        //         return '<ul>' + match + '</ul>';
-        //     });
-
-        //     // Clean up extra <p> tags
-        //     html = html.replace(/<p><\/p>/g, '');
-        //     html = html.replace(/<p>(<h[1-6]>)/g, '$1');
-        //     html = html.replace(/(<\/h[1-6]>)<\/p>/g, '$1');
-        //     html = html.replace(/<p>(<ul>)/g, '$1');
-        //     html = html.replace(/(<\/ul>)<\/p>/g, '$1');
-
-        //     document.getElementById('summaryContainer').innerHTML = html;
-        // }
-
-        // function renderMarkdown(markdownText) {
-        //     let html = markdownText;
-
-        //     // --- Tables ---
-        //     html = html.replace(
-        //         /((?:\|.+\|\r?\n)+)(?=\r?\n|$)/g,
-        //         (match) => {
-        //             const rows = match.trim().split(/\r?\n/);
-        //             if (rows.length < 2) return match;
-
-        //             // Header row
-        //             const headers = rows[0].split('|').filter(h => h.trim() !== '');
-        //             let thead = '<tr>' + headers.map(h => `<th>${h.trim()}</th>`).join('') + '</tr>';
-
-        //             // Data rows (skip header + separator)
-        //             const bodyRows = rows.slice(2).map(r => {
-        //                 const cols = r.split('|').filter(c => c.trim() !== '');
-        //                 return '<tr>' + cols.map(c => `<td>${c.trim()}</td>`).join('') + '</tr>';
-        //             }).join('');
-
-        //             return `<table class="data-table"><thead>${thead}</thead><tbody>${bodyRows}</tbody></table>`;
-        //         }
-        //     );
-
-        //     // --- Headings ---
-        //     html = html
-        //         .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-        //         .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-        //         .replace(/^# (.*$)/gm, '<h1>$1</h1>');
-
-        //     // --- Bold / Italic / Code ---
-        //     html = html
-        //         .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        //         .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        //         .replace(/`(.*?)`/g, '<code>$1</code>');
-
-        //     // --- Lists ---
-        //     html = html
-        //         .replace(/^\* (.*$)/gm, '<li>$1</li>')
-        //         .replace(/^\- (.*$)/gm, '<li>$1</li>')
-        //         .replace(/^\d+\. (.*$)/gm, '<li>$1</li>');
-
-        //     // Wrap <li> in <ul> or <ol>
-        //     html = html.replace(/(<li>.*?<\/li>)/gs, '<ul>$1</ul>');
-
-        //     // --- Paragraphs ---
-        //     html = html
-        //         .replace(/\n\n/g, '</p><p>')
-        //         .replace(/^(?!<[h|l|p|t])/gm, '<p>')
-        //         .replace(/(?<!>)$/gm, '</p>');
-
-        //     // Clean up empty <p>
-        //     html = html.replace(/<p><\/p>/g, '');
-
-        //     document.getElementById('summaryContainer').innerHTML = html;
-        // }
-
-
-
-
         function renderMarkdown(markdownText) {
-        // escape HTML to avoid injection
-        const escapeHtml = s => String(s)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#039;");
+            const escapeHtml = s => String(s)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
 
-        // check if a line is a table line (starts/ends with a pipe)
-        const isTableLine = (line) => /^\s*\|.*\|\s*$/.test(line);
+            const isTableLine = (line) => /^\s*\|.*\|\s*$/.test(line);
+            const isSeparatorCell = (cell) => /^:?\s*-{3,}\s*:?$/.test(cell.trim());
 
-        // check if a cell (after trim) is a markdown separator (--- or :---:)
-        const isSeparatorCell = (cell) => /^:?\s*-{3,}\s*:?$/.test(cell.trim());
+            function parseTableBlock(lines) {
+                const rows = lines.map(line => {
+                    let inner = line.trim();
+                    if (inner.startsWith("|")) inner = inner.slice(1);
+                    if (inner.endsWith("|")) inner = inner.slice(0, -1);
+                    return inner.split("|").map(cell => cell.replace(/^\s+|\s+$/g, ""));
+                });
 
-        // parse contiguous table lines into an HTML table
-        function parseTableBlock(lines) {
-            // Convert each line into an array of cells, preserving empty cells.
-            // Remove only the outer leading/trailing pipe, then split on '|'
-            const rows = lines.map(line => {
-            let inner = line.trim();
-            if (inner.startsWith("|")) inner = inner.slice(1);
-            if (inner.endsWith("|")) inner = inner.slice(0, -1);
-            // split keeps empty strings for consecutive pipes -> preserves blank cells
-            return inner.split("|").map(cell => cell.replace(/^\s+|\s+$/g, "")); // trim each cell but keep empty
-            });
+                const colCount = Math.max(...rows.map(r => r.length), 0);
+                rows.forEach(r => { while (r.length < colCount) r.push(""); });
 
-            // determine max columns
-            const colCount = Math.max(...rows.map(r => r.length), 0);
+                let header = null;
+                let bodyStart = 0;
+                if (rows.length >= 2 && rows[1].every(isSeparatorCell)) {
+                    header = rows[0];
+                    bodyStart = 2;
+                }
 
-            // pad rows to colCount
-            rows.forEach(r => { while (r.length < colCount) r.push(""); });
+                const thead = header
+                    ? `<thead><tr>${header.map(h => `<th>${escapeHtml(h || '') || '&nbsp;'}</th>`).join("")}</tr></thead>`
+                    : "";
 
-            // detect header: second row is a separator row (---)
-            let header = null;
-            let bodyStart = 0;
-            if (rows.length >= 2 && rows[1].every(isSeparatorCell)) {
-            header = rows[0];
-            bodyStart = 2; // skip header + separator
+                const tbody = rows.slice(bodyStart)
+                    .map(row => `<tr>${row.map(c => `<td>${escapeHtml(c || '') || '&nbsp;'}</td>`).join("")}</tr>`)
+                    .join("");
+
+                return `<table class="data-table">${thead}<tbody>${tbody}</tbody></table>`;
             }
 
-            const thead = header
-            ? `<thead><tr>${header.map(h => `<th>${escapeHtml(h || '') || '&nbsp;'}</th>`).join("")}</tr></thead>`
-            : "";
-
-            const tbody = rows.slice(bodyStart)
-            .map(row => `<tr>${row.map(c => `<td>${escapeHtml(c || '') || '&nbsp;'}</td>`).join("")}</tr>`)
-            .join("");
-
-            return `<table class="data-table">${thead}<tbody>${tbody}</tbody></table>`;
-        }
-
-        // Phase 1: split into lines, find table blocks and convert them first
-        const lines = markdownText.replace(/\r\n/g, "\n").split("\n");
-        const out = [];
-        let i = 0;
-        while (i < lines.length) {
-            if (isTableLine(lines[i])) {
-            const block = [];
-            while (i < lines.length && isTableLine(lines[i])) {
-                block.push(lines[i]);
-                i++;
+            const lines = markdownText.replace(/\r\n/g, "\n").split("\n");
+            const out = [];
+            let i = 0;
+            while (i < lines.length) {
+                if (isTableLine(lines[i])) {
+                    const block = [];
+                    while (i < lines.length && isTableLine(lines[i])) {
+                        block.push(lines[i]);
+                        i++;
+                    }
+                    out.push(parseTableBlock(block));
+                } else {
+                    out.push(lines[i]);
+                    i++;
+                }
             }
-            out.push(parseTableBlock(block));
-            } else {
-            out.push(lines[i]);
-            i++;
-            }
+
+            let html = out.join("\n");
+
+            html = html
+                .replace(/^###### (.*)$/gm, "<h6>$1</h6>")
+                .replace(/^##### (.*)$/gm, "<h5>$1</h5>")
+                .replace(/^#### (.*)$/gm, "<h4>$1</h4>")
+                .replace(/^### (.*)$/gm, "<h3>$1</h3>")
+                .replace(/^## (.*)$/gm, "<h2>$1</h2>")
+                .replace(/^# (.*)$/gm, "<h1>$1</h1>")
+                .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+                .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "<em>$1</em>")
+                .replace(/`([^`]+?)`/g, "<code>$1</code>")
+                .replace(/^\s*-\s+(.+)$/gm, "<li>$1</li>")
+                .replace(/^\s*\*\s+(.+)$/gm, "<li>$1</li>")
+                .replace(/^\s*\d+\.\s+(.+)$/gm, "<li data-ol>$1</li>");
+
+            html = html
+                .replace(/(?:\s*<li data-ol>[\s\S]*?<\/li>)+/g, (block) => {
+                    const items = block.replace(/ data-ol/g, "");
+                    return `<ol>${items}</ol>`;
+                })
+                .replace(/(?:\s*<li>[\s\S]*?<\/li>)+/g, (block) => `<ul>${block}</ul>`);
+
+            html = html
+                .split("\n")
+                .map(line => {
+                    if (!line.trim()) return "";
+                    if (/^\s*</.test(line)) return line;
+                    return `<p>${line}</p>`;
+                })
+                .join("\n");
+
+            html = html.replace(/<p>\s*<\/p>/g, "");
+
+            document.getElementById("summaryContainer").innerHTML = html;
         }
 
-        let html = out.join("\n");
+        function switchTab(tabName, el) {
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(content => content.classList.remove('active'));
 
-        // --- basic markdown transforms (safe, applied after table HTML is in place) ---
-        html = html
-            // headings
-            .replace(/^###### (.*)$/gm, "<h6>$1</h6>")
-            .replace(/^##### (.*)$/gm, "<h5>$1</h5>")
-            .replace(/^#### (.*)$/gm, "<h4>$1</h4>")
-            .replace(/^### (.*)$/gm, "<h3>$1</h3>")
-            .replace(/^## (.*)$/gm, "<h2>$1</h2>")
-            .replace(/^# (.*)$/gm, "<h1>$1</h1>")
-            // bold / italic / inline code
-            .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-            .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "<em>$1</em>")
-            .replace(/`([^`]+?)`/g, "<code>$1</code>")
-            // unordered / ordered list items -> <li>
-            .replace(/^\s*-\s+(.+)$/gm, "<li>$1</li>")
-            .replace(/^\s*\*\s+(.+)$/gm, "<li>$1</li>")
-            .replace(/^\s*\d+\.\s+(.+)$/gm, "<li data-ol>$1</li>");
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
 
-        // group consecutive <li> into <ul> / <ol>
-        html = html
-            // ordered lists
-            .replace(/(?:\s*<li data-ol>[\s\S]*?<\/li>)+/g, (block) => {
-            const items = block.replace(/ data-ol/g, "");
-            return `<ol>${items}</ol>`;
-            })
-            // unordered lists
-            .replace(/(?:\s*<li>[\s\S]*?<\/li>)+/g, (block) => `<ul>${block}</ul>`);
-
-        // wrap plain lines (that are not HTML) in <p>
-        html = html
-            .split("\n")
-            .map(line => {
-            if (!line.trim()) return "";
-            if (/^\s*</.test(line)) return line; // starts with an HTML tag -> leave as-is
-            return `<p>${line}</p>`;
-            })
-            .join("\n");
-
-        // cleanup empty paragraphs
-        html = html.replace(/<p>\s*<\/p>/g, "");
-
-        // inject
-        document.getElementById("summaryContainer").innerHTML = html;
-        }
-
-
-
-
-
-        // function switchTab(tabName) {
-        //     // Hide all tab contents
-        //     const tabContents = document.querySelectorAll('.tab-content');
-        //     tabContents.forEach(content => content.classList.remove('active'));
-
-        //     // Remove active class from all tabs
-        //     const tabs = document.querySelectorAll('.tab');
-        //     tabs.forEach(tab => tab.classList.remove('active'));
-
-        //     // Show selected tab content and mark tab as active
-        //     document.getElementById(tabName + 'Tab').classList.add('active');
-        //     event.target.classList.add('active');
-        // }
-
-        function switchTab(tabName, el=null) {
-        // Hide all tab contents
-        const tabContents = document.querySelectorAll('.tab-content');
-        tabContents.forEach(content => content.classList.remove('active'));
-
-        // Remove active class from all tabs
-        const tabs = document.querySelectorAll('.tab');
-        tabs.forEach(tab => tab.classList.remove('active'));
-
-        // Show selected tab content
-        document.getElementById(tabName + 'Tab').classList.add('active');
-        if (el) el.classList.add('active');
+            document.getElementById(tabName + 'Tab').classList.add('active');
+            if (el) el.classList.add('active');
         }
 
         function showError(message) {
@@ -1124,11 +978,9 @@
             errorDiv.className = 'error-message';
             errorDiv.textContent = '❌ ' + message;
             
-            // Insert at the top of the input section
             const inputSection = document.querySelector('.input-section');
             inputSection.insertBefore(errorDiv, inputSection.firstChild);
             
-            // Remove after 5 seconds
             setTimeout(() => {
                 if (errorDiv.parentNode) {
                     errorDiv.parentNode.removeChild(errorDiv);
@@ -1141,11 +993,9 @@
             successDiv.className = 'success-message';
             successDiv.textContent = '✅ ' + message;
             
-            // Insert at the top of the input section
             const inputSection = document.querySelector('.input-section');
             inputSection.insertBefore(successDiv, inputSection.firstChild);
             
-            // Remove after 5 seconds
             setTimeout(() => {
                 if (successDiv.parentNode) {
                     successDiv.parentNode.removeChild(successDiv);
@@ -1153,263 +1003,100 @@
             }, 5000);
         }
 
-        // Enhanced file reading for better column detection
-        async function readFileColumns(file) {
-            return new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                
-                reader.onload = function(e) {
-                    try {
-                        let columns = [];
-                        
-                        if (file.name.endsWith('.csv')) {
-                            const lines = e.target.result.split('\n');
-                            if (lines.length > 0) {
-                                columns = lines[0].split(',').map(col => col.trim().replace(/"/g, ''));
-                            }
-                        } else if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-                            // For Excel files, we would need a library like SheetJS
-                            // For now, we'll show a message to the user
-                            showError('Excel file detected. Column detection may be limited. Please upload as CSV for better experience.');
-                            resolve([]);
-                            return;
-                        }
-                        
-                        resolve(columns.filter(col => col.length > 0));
-                    } catch (error) {
-                        reject(error);
-                    }
-                };
-                
-                reader.onerror = () => reject(new Error('Failed to read file'));
-                reader.readAsText(file);
-            });
-        }
-
-        // Enhanced file selection handler with better column loading
-        async function handleFileSelect(event) {
-            const file = event.target.files[0];
-            const fileName = document.getElementById('fileName');
-            const previewBtn = document.getElementById('previewBtn');
-            const targetSelect = document.getElementById('targetColumn');
-
-            if (file) {
-                fileName.textContent = `Selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
-                fileName.classList.remove('hidden');
-                previewBtn.classList.remove('hidden');
-                
-                try {
-                    const columns = await readFileColumns(file);
-                    
-                    targetSelect.innerHTML = '<option value="">Select target column...</option>';
-                    columns.forEach(column => {
-                        const option = document.createElement('option');
-                        option.value = column;
-                        option.textContent = column;
-                        targetSelect.appendChild(option);
-                    });
-                    
-                    if (columns.length > 0) {
-                        targetSelect.disabled = false;
-                        showSuccess(`Loaded ${columns.length} columns from the dataset`);
-                    } else {
-                        showError('Could not detect columns. Please ensure the file has a proper header row.');
-                    }
-                } catch (error) {
-                    console.error('Error loading columns:', error);
-                    showError('Failed to read file columns: ' + error.message);
-                }
-            } else {
-                fileName.classList.add('hidden');
-                previewBtn.classList.add('hidden');
-                targetSelect.disabled = true;
-                targetSelect.innerHTML = '<option value="">Select target column...</option>';
+        function resetForm(clearFile = true) {
+            // Clear file input
+            if (clearFile) {
+                document.getElementById('fileInput').value = '';
+                document.getElementById('fileName').classList.add('hidden');
+                document.getElementById('previewBtn').classList.add('hidden');
             }
-        }
-
-        // Enhanced data preview with better error handling
-        async function previewData() {
-            const fileInput = document.getElementById('fileInput');
-            const file = fileInput.files[0];
             
-            if (!file) {
-                showError('Please select a file first');
-                return;
-            }
-
-            try {
-                if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-                    showError('Excel preview not fully supported. Please convert to CSV for better preview.');
-                    return;
-                }
-
-                const text = await file.text();
-                const lines = text.split('\n').filter(line => line.trim().length > 0).slice(0, 6);
-                
-                if (lines.length < 2) {
-                    showError('File does not contain enough data for preview');
-                    return;
-                }
-
-                const data = lines.map(line => {
-                    // Better CSV parsing - handle quotes and commas within fields
-                    const result = [];
-                    let current = '';
-                    let inQuotes = false;
-                    
-                    for (let i = 0; i < line.length; i++) {
-                        const char = line[i];
-                        if (char === '"') {
-                            inQuotes = !inQuotes;
-                        } else if (char === ',' && !inQuotes) {
-                            result.push(current.trim());
-                            current = '';
-                        } else {
-                            current += char;
-                        }
-                    }
-                    result.push(current.trim());
-                    return result;
-                });
-
-                const headers = data[0];
-                const rows = data.slice(1);
-
-                let tableHTML = '<div style="overflow-x: auto;"><table class="data-table"><thead><tr>';
-                headers.forEach(header => {
-                    tableHTML += `<th>${header || 'Unnamed'}</th>`;
-                });
-                tableHTML += '</tr></thead><tbody>';
-
-                rows.forEach(row => {
-                    tableHTML += '<tr>';
-                    headers.forEach((_, index) => {
-                        const cell = row[index] || '';
-                        tableHTML += `<td>${cell.length > 50 ? cell.substring(0, 50) + '...' : cell}</td>`;
-                    });
-                    tableHTML += '</tr>';
-                });
-
-                tableHTML += '</tbody></table></div>';
-                tableHTML += `<p style="margin-top: 10px; color: #666; font-size: 14px;">
-                    Showing first ${rows.length} rows of ${headers.length} columns. 
-                    Long text is truncated for display.
-                </p>`;
-                
-                document.getElementById('dataPreviewContainer').innerHTML = tableHTML;
-                switchTab('data');
-                showSuccess('Data preview loaded successfully');
-                
-            } catch (error) {
-                console.error('Error previewing data:', error);
-                showError('Failed to preview data: ' + error.message);
-            }
-        }
-
-        // Improved job results loading with better error handling
-        async function loadJobResults(jobId) {
-            const loadingTasks = [];
+            // Reset form fields
+            document.getElementById('targetColumn').innerHTML = '<option value="">Select target column...</option>';
+            document.getElementById('targetColumn').disabled = true;
+            document.getElementById('problemType').value = 'auto';
+            document.getElementById('tuneModel').checked = false;
+            document.getElementById('userComments').value = '';
             
-            // Load generated code
-            loadingTasks.push(
-                fetch(`${API_BASE}/jobs/${jobId}/code`)
-                    .then(async response => {
-                        if (response.ok) {
-                            const codeText = await response.text();
-                            document.getElementById('codeContainer').textContent = codeText;
-                            
-                            const downloadCodeBtn = document.getElementById('downloadCodeBtn');
-                            downloadCodeBtn.href = `${API_BASE}/jobs/${jobId}/code`;
-                            downloadCodeBtn.download = `ml_code_${jobId}.py`;
-                            document.getElementById('downloadButtons').classList.remove('hidden');
-                            return { type: 'code', success: true };
-                        }
-                        return { type: 'code', success: false, error: 'Code not available' };
-                    })
-                    .catch(error => ({ type: 'code', success: false, error: error.message }))
-            );
-
-            // Load job status and metrics
-            loadingTasks.push(
-                fetch(`${API_BASE}/jobs/${jobId}`)
-                    .then(async response => {
-                        if (response.ok) {
-                            const status = await response.json();
-                            displayMetrics(status.results);
-                            return { type: 'metrics', success: true };
-                        }
-                        return { type: 'metrics', success: false, error: 'Metrics not available' };
-                    })
-                    .catch(error => ({ type: 'metrics', success: false, error: error.message }))
-            );
-
-            // Load AI summary
-            loadingTasks.push(
-                fetch(`${API_BASE}/jobs/${jobId}/ai_summary`)
-                    .then(async response => {
-                        if (response.ok) {
-                            const summaryText = await response.text();
-                            renderMarkdown(summaryText);
-                            
-                            document.getElementById('downloadSummaryBtn').href = `${API_BASE}/jobs/${jobId}/ai_summary`;
-                            document.getElementById('downloadSummaryBtn').download = `ai_summary_${jobId}.md`;
-                            
-                            document.getElementById('downloadModelBtn').href = `${API_BASE}/jobs/${jobId}/model`;
-                            document.getElementById('downloadModelBtn').download = `model_${jobId}.zip`;
-                            
-                            document.getElementById('summaryDownloadButtons').classList.remove('hidden');
-                            return { type: 'summary', success: true };
-                        }
-                        return { type: 'summary', success: false, error: 'Summary not available' };
-                    })
-                    .catch(error => ({ type: 'summary', success: false, error: error.message }))
-            );
-
-            try {
-                const results = await Promise.all(loadingTasks);
-                const failures = results.filter(r => !r.success);
-                
-                if (failures.length > 0) {
-                    const failedTypes = failures.map(f => f.type).join(', ');
-                    showError(`Some results failed to load: ${failedTypes}`);
-                } else {
-                    showSuccess('All results loaded successfully!');
-                }
-            } catch (error) {
-                console.error('Error loading job results:', error);
-                showError('Failed to load job results');
+            // Reset train button
+            document.getElementById('trainBtn').disabled = false;
+            document.getElementById('trainBtn').innerHTML = '🚀 Start ML Training';
+            
+            // Clear status section
+            document.getElementById('statusSection').classList.add('hidden');
+            document.getElementById('statusIndicator').innerHTML = '';
+            document.getElementById('progressFill').style.width = '0%';
+            document.getElementById('statusMessage').innerHTML = '';
+            
+            // Clear session
+            currentSessionId = null;
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+            
+            // Reset all output tabs
+            document.getElementById('codeContainer').innerHTML = `
+                <div style="text-align: center; color: #7f8c8d; padding: 50px;">
+                    🔄 Run a training job to see generated code...
+                </div>
+            `;
+            document.getElementById('downloadButtons').classList.add('hidden');
+            
+            document.getElementById('metricsContainer').innerHTML = `
+                <div style="text-align: center; color: #7f8c8d; padding: 50px;">
+                    📈 Performance metrics will appear after training completion...
+                </div>
+            `;
+            
+            document.getElementById('summaryContainer').innerHTML = `
+                <div style="text-align: center; color: #7f8c8d; padding: 50px; height: 95%;">
+                    🤖 AI-generated summary will appear after analysis...
+                </div>
+            `;
+            document.getElementById('summaryDownloadButtons').classList.add('hidden');
+            
+            document.getElementById('dataPreviewContainer').innerHTML = `
+                <div style="text-align: center; color: #7f8c8d; padding: 50px;">
+                    👁️ Click "Preview Data" to see first 5 rows of your dataset...
+                </div>
+            `;
+            
+            // Switch back to code tab
+            switchTab('code', document.querySelectorAll('.tab')[0]);
+            
+            // Show success message if manually reset
+            if (clearFile) {
+                showSuccess('Form reset successfully');
             }
         }
 
-        // Add keyboard shortcuts
         document.addEventListener('keydown', function(e) {
             if (e.ctrlKey || e.metaKey) {
                 switch(e.key) {
                     case '1':
                         e.preventDefault();
-                        switchTab('code');
+                        switchTab('code', document.querySelectorAll('.tab')[0]);
                         break;
                     case '2':
                         e.preventDefault();
-                        switchTab('metrics');
+                        switchTab('metrics', document.querySelectorAll('.tab')[1]);
                         break;
                     case '3':
                         e.preventDefault();
-                        switchTab('summary');
+                        switchTab('summary', document.querySelectorAll('.tab')[2]);
                         break;
                     case '4':
                         e.preventDefault();
-                        switchTab('data');
+                        switchTab('data', document.querySelectorAll('.tab')[3]);
                         break;
                 }
             }
         });
 
-        // Initialize tooltips and help text
         document.addEventListener('DOMContentLoaded', function() {
-            // Add help tooltips
             const helpTexts = {
-                'problemType': 'Leave empty for automatic detection. Specify "classification" or "regression" if known.',
+                'problemType': 'Select auto-detect for automatic problem type detection, or specify classification/regression',
                 'tuneModel': 'Enable this to perform hyperparameter optimization (will take longer but may improve results)',
                 'userComments': 'Provide context about your data to help the AI generate better analysis'
             };
@@ -1421,7 +1108,6 @@
                 }
             });
 
-            // Show API connection status
             checkAPIConnection();
         });
 
@@ -1437,10 +1123,6 @@
                 showError('Cannot connect to ML API. Please ensure the backend server is running on ' + API_BASE);
             }
         }
-
-        // Re-assign the improved event listeners
-        document.getElementById('fileInput').removeEventListener('change', handleFileSelect);
-        document.getElementById('fileInput').addEventListener('change', handleFileSelect);
     </script>
 </body>
 </html>

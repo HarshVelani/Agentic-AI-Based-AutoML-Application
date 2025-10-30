@@ -1,4 +1,4 @@
-from code.workflow_manager import AgenticMLWorkflow
+from src.workflow_manager import AgenticMLWorkflow
 import os
 from typing import Dict, Any
 from dotenv import load_dotenv  

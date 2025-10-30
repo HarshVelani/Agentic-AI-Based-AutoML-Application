@@ -316,3 +316,6 @@ Contributions are welcome! If you'd like to improve AutoDS, please feel free to 
 ## 📄 License
 
 This project is distributed under the MIT License. See the `LICENSE` file for more information.
+
+
+Setup Session manager

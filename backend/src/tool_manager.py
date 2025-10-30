@@ -1,4 +1,4 @@
-from code.pipeline_generator import PipelineGenerator
+from src.pipeline_generator import PipelineGenerator
 import datetime
 
 class ToolManager:

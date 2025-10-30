@@ -29,7 +29,7 @@ pipeline_generator_prompt = ChatPromptTemplate.from_messages([
             Target Column: {target_col}
             Problem Type: {problem_type}
             Data Path: {data_path}
-            Results Save Path: "backend/results/{session_id}_{problem_type}_results.json"
+            Results Save Path: "results/{session_id}_{problem_type}_results.json"
                         
             Generate code that:
             1. Loads the data from the file path
@@ -39,7 +39,7 @@ pipeline_generator_prompt = ChatPromptTemplate.from_messages([
             5. Splits data into train/test (80/20)
             6. Trains multiple models appropriate for {problem_type}
             7. Saves all the model files
-             - make zip file of all models and save it in file path 'backend/model/{session_id}_{problem_type}_models.zip'
+             - make zip file of all models and save it in file path 'model/{session_id}_{problem_type}_models.zip'
              - Model file names should be like '[model_name].pkl'
             8. Returns a dictionary with metrics of all models as results
             9. save the results in a json file named 'results.json'
@@ -83,10 +83,10 @@ result_summarizer_prompt = ChatPromptTemplate.from_messages([
             Your objective is to generate a comprehensive and detailed performance report for a set of machine learning models. You will analyze the provided model results and data schema to identify the best-performing model and provide a thorough explanation of its performance and a comparison against other models.
 
             **[CONTEXT]**
-            You will be provided with three key pieces of information in JSON format:
-            1.  `model_results`: A JSON object containing the performance metrics for all trained models. This will include metrics like MSE, MAE, R-squared for regression tasks, and accuracy, classification reports, and confusion matrices for classification tasks.
-            2.  `data_schema`: A JSON object describing the dataset used for training the models. This includes information about the dataset's shape, columns, data types, missing values, and details about the target variable.
-            3.  `best_model_name`: A string indicating the name of the model identified as the best performer based on a primary evaluation metric.
+            You will be provided with three key pieces of information:
+            1.  `model_results`: the performance metrics for all trained models. This will include metrics like MSE, MAE, R-squared for regression tasks, and accuracy, classification reports, and confusion matrices for classification tasks.
+            2.  `data_schema`: describing the dataset used for training the models. This includes information about the dataset's shape, columns, data types, missing values, and details about the target variable.
+            3.  `best_model_name`: indicates the name of the model identified as the best performer based on a primary evaluation metric.
 
             **[INSTRUCTIONS & STEPS]**
             Generate a report in Markdown format by following these steps precisely:

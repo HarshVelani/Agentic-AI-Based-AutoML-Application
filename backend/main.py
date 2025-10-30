@@ -1,65 +1,61 @@
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, BackgroundTasks, Security, Form, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from contextlib import asynccontextmanager
 import uvicorn
 import os
 import json
 import logging
-from typing import Dict, Any, Optional, List
-import asyncio
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import aiofiles
 import uuid
 from pathlib import Path
 import pandas as pd
-import numpy as np
 from pydantic import BaseModel, Field, validator
 import traceback
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-import redis.asyncio as redis
 from enum import Enum
-import time
 
-
-# Import your existing workflow
-from code.workflow_manager import AgenticMLWorkflow
+# Import session management and workflow
+from src.session_manager import SessionManager, SessionStatus, SessionRecord
+from src.workflow_manager import AgenticMLWorkflow
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('backend/logs/app.log'),
+        logging.FileHandler('logs/app.log'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
-# Rate limiting
-limiter = Limiter(key_func=get_remote_address, default_limits=["30  /minute"])
+# Rate limiting with optimized defaults
+limiter = Limiter(
+    key_func=get_remote_address, 
+    default_limits=["200/minute"],  # More permissive default for read operations
+    storage_uri="memory://"  # Better performance than default
+)
 
-# Security
-security = HTTPBearer()
+# Global session manager
+session_manager: Optional[SessionManager] = None
+workflow_instances: Dict[str, AgenticMLWorkflow] = {}
 
-# Redis for caching and session management
-redis_client = None
+# Simple in-memory cache for session status
+session_status_cache: Dict[str, tuple[Any, datetime]] = {}
+CACHE_TTL_SECONDS = 2  # Cache for 2 seconds to handle rapid polling
+
 
 class ProblemType(str, Enum):
     CLASSIFICATION = "classification"
     REGRESSION = "regression"
     AUTO = "auto"
 
-class JobStatus(str, Enum):
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
 
 class TrainingRequest(BaseModel):
     target_column: str = Field(..., description="Name of the target column")
@@ -73,43 +69,36 @@ class TrainingRequest(BaseModel):
             raise ValueError('Target column cannot be empty')
         return v.strip()
 
-class BatchTrainingRequest(BaseModel):
-    jobs: List[TrainingRequest] = Field(..., description="List of training jobs")
-    
-    @validator('jobs')
-    def validate_jobs(cls, v):
-        if len(v) == 0:
-            raise ValueError('At least one job is required')
-        if len(v) > 10:  # Limit batch size
-            raise ValueError('Maximum 10 jobs allowed per batch')
-        return v
 
 class TrainingResponse(BaseModel):
+    session_id: str
     job_id: str
-    status: JobStatus
+    status: SessionStatus
     message: str
-    submitted_at: datetime
+    created_at: datetime
 
-class JobStatusResponse(BaseModel):
+
+class SessionStatusResponse(BaseModel):
+    session_id: str
     job_id: str
-    status: JobStatus
-    progress: Optional[float] = None
-    submitted_at: datetime
-    completed_at: Optional[datetime] = None
-    results: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-
-# class ModelPredictionRequest(BaseModel):
-#     model_id: str = Field(..., description="ID of the trained model")
-#     data: Dict[str, Any] = Field(..., description="Input data for prediction")
-
-# Global variables for job management
-jobs_db = {}
-workflow_instances = {}
-
+    status: SessionStatus
+    progress: float
+    current_step: Optional[str]
+    filename: str
+    target_column: str
+    created_at: datetime
+    updated_at: datetime
+    completed_at: Optional[datetime]
+    inferred_problem_type: Optional[str]
+    best_model_name: Optional[str]
+    metrics: Optional[Dict[str, Any]]
+    error_message: Optional[str]
 
 
 def make_json_safe(obj):
+    """Convert numpy types to native Python types"""
+    import numpy as np
+    
     if isinstance(obj, (np.integer, np.floating)):
         return obj.item()
     if isinstance(obj, (np.ndarray, pd.Series)):
@@ -119,46 +108,71 @@ def make_json_safe(obj):
     return str(obj)
 
 
+def get_cached_session_status(session_id: str) -> Optional[SessionStatusResponse]:
+    """Get session status from cache if available and not expired"""
+    if session_id in session_status_cache:
+        cached_response, cached_time = session_status_cache[session_id]
+        if (datetime.utcnow() - cached_time).total_seconds() < CACHE_TTL_SECONDS:
+            return cached_response
+    return None
+
+
+def cache_session_status(session_id: str, response: SessionStatusResponse):
+    """Cache session status response"""
+    session_status_cache[session_id] = (response, datetime.utcnow())
+    
+    # Simple cache cleanup: remove old entries if cache gets too large
+    if len(session_status_cache) > 1000:
+        current_time = datetime.utcnow()
+        expired_keys = [
+            key for key, (_, cached_time) in session_status_cache.items()
+            if (current_time - cached_time).total_seconds() > CACHE_TTL_SECONDS * 10
+        ]
+        for key in expired_keys:
+            del session_status_cache[key]
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle application startup and shutdown"""
+    global session_manager
+    
     # Startup
-    global redis_client
-    try:
-        redis_client = redis.from_url(
-            os.getenv("REDIS_URL", "redis://localhost:6379"),
-            decode_responses=True
-        )
-        await redis_client.ping()
-        logger.info("Connected to Redis successfully")
-    except Exception as e:
-        logger.warning(f"Failed to connect to Redis: {e}. Using in-memory storage.")
-        redis_client = None
+    logger.info("Starting FastAPI application...")
+    
+    # Initialize session manager
+    session_manager = SessionManager(storage_dir="session_data")
+    logger.info("Session manager initialized")
     
     # Create necessary directories
-    os.makedirs("backend/uploads", exist_ok=True)
-    os.makedirs("backend/model", exist_ok=True)
-    os.makedirs("backend/results", exist_ok=True)
-    os.makedirs("backend/generated_code", exist_ok=True)
-    os.makedirs("backend/ai_summary", exist_ok=True)
-    os.makedirs("backend/workflow_info", exist_ok=True)
-    os.makedirs("backend/logs", exist_ok=True)
-    os.makedirs("backend/backups", exist_ok=True)
+    directories = [
+        "uploads", "model", "results", "generated_code",
+        "ai_summary", "workflow_info", "logs", "backups", "session_data"
+    ]
+    for directory in directories:
+        os.makedirs(directory, exist_ok=True)
     
     logger.info("FastAPI application started successfully")
     yield
     
     # Shutdown
-    if redis_client:
-        await redis_client.close()
+    logger.info("Shutting down FastAPI application...")
+    
+    # Save all sessions before shutdown
+    if session_manager:
+        session_manager._save_sessions()
+    
+    # Clear cache
+    session_status_cache.clear()
+    
     logger.info("FastAPI application shut down")
+
 
 # Create FastAPI app
 app = FastAPI(
-    title="Agentic ML Workflow API",
-    description="Production-grade API for automated machine learning workflows",
-    version="1.0.0",
+    title="Agentic ML Workflow API with Session Management",
+    description="Production-grade API for automated machine learning workflows with session tracking",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan
@@ -168,35 +182,18 @@ app = FastAPI(
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],# os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(","),
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
-# app.add_middleware(
-#     TrustedHostMiddleware, 
-#     allowed_hosts=os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
-# )
 
 # Add rate limit handler
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# # Security functions
-# async def verify_token(credentials: HTTPAuthorizationCredentials = Security(security)):
-#     """Verify API token"""
-#     token = credentials.credentials
-#     valid_tokens = os.getenv("API_TOKENS", "").split(",")
-    
-#     if not valid_tokens or token not in valid_tokens:
-#         raise HTTPException(
-#             status_code=401,
-#             detail="Invalid authentication token",
-#             headers={"WWW-Authenticate": "Bearer"},
-#         )
-#     return token
 
-async def save_uploaded_file(file: UploadFile) -> str:
+async def save_uploaded_file(file: UploadFile, session_id: str) -> str:
     """Save uploaded file and return path"""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -210,11 +207,9 @@ async def save_uploaded_file(file: UploadFile) -> str:
             detail=f"Invalid file type. Allowed: {', '.join(allowed_extensions)}"
         )
     
-    # Create unique filename
-    file_id = str(uuid.uuid4())
-    current_time = datetime.now().strftime("%Y_%m_%d__%H_%M_%S")
-    filename = f"{current_time}__{file_id}_{file.filename}"
-    file_path = f"backend/uploads/{filename}"
+    # Create filename with session ID
+    filename = f"{session_id}_{file.filename}"
+    file_path = f"uploads/{filename}"
     
     try:
         async with aiofiles.open(file_path, 'wb') as f:
@@ -237,131 +232,67 @@ async def save_uploaded_file(file: UploadFile) -> str:
             os.remove(file_path)
         raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
 
-async def save_job_status(job_id: str, status: JobStatus, **kwargs):
-    """Save job status to Redis or memory"""
-    job_data = {
-        "job_id": job_id,
-        "status": status.value,
-        "updated_at": datetime.utcnow().isoformat(),
-        **kwargs
-    }
-    
-    # Convert any non-string values to strings for Redis
-    for key, value in job_data.items():
-        if isinstance(value, dict):
-            job_data[key] = json.dumps(value)
-        elif not isinstance(value, (str, int, float, bool)):
-            job_data[key] = str(value)
-    
-    if redis_client:
-        try:
-            await redis_client.hset(f"job:{job_id}", mapping=job_data)
-            await redis_client.expire(f"job:{job_id}", 86400)  # 24 hours TTL
-        except Exception as e:
-            logger.warning(f"Failed to save to Redis: {e}, falling back to memory")
-            jobs_db[job_id] = job_data
-    else:
-        jobs_db[job_id] = job_data
 
-
-
-    # if redis_client:
-    #     await redis_client.hset(f"job:{job_id}", mapping=job_data)
-    #     await redis_client.expire(f"job:{job_id}", 86400)  # 24 hours TTL
-    # else:
-    #     jobs_db[job_id] = job_data
-
-async def get_job_status(job_id: str) -> Optional[Dict]:
-    """Get job status from Redis or memory"""
-    # if redis_client:
-    #     job_data = await redis_client.hgetall(f"job:{job_id}")
-    #     return job_data if job_data else None
-    # else:
-    #     return jobs_db.get(job_id)
-    if redis_client:
-        try:
-            job_data = await redis_client.hgetall(f"job:{job_id}")
-            if job_data:
-                # Convert back JSON strings to objects where needed
-                for key in ['results', 'request']:
-                    if key in job_data and isinstance(job_data[key], str):
-                        try:
-                            job_data[key] = json.loads(job_data[key])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-                return job_data
-        except Exception as e:
-            logger.warning(f"Failed to get from Redis: {e}, trying memory")
-    
-    return jobs_db.get(job_id)
-
-async def run_ml_workflow(job_id: str, data_path: str, request: TrainingRequest):
-    """Background task to run ML workflow"""
+async def run_ml_workflow(session_id: str):
+    """Background task to run ML workflow for a session"""
     try:
-        # Update status to running
-        await save_job_status(job_id, JobStatus.RUNNING, progress=0.1)
+        # Get session record
+        session = session_manager.get_session(session_id)
+        if not session:
+            logger.error(f"Session {session_id} not found")
+            return
         
         # Initialize workflow
-        workflow = AgenticMLWorkflow()
-        workflow_instances[job_id] = workflow
-        
-        await save_job_status(job_id, JobStatus.RUNNING, progress=0.2)
+        workflow = AgenticMLWorkflow(session_manager)
+        workflow_instances[session_id] = workflow
         
         # Run workflow
         results = workflow.run_workflow(
-            data_path=data_path,
-            target_column=request.target_column,
-            problem_type=request.problem_type.value if request.problem_type != ProblemType.AUTO else None,
-            tune_model=request.tune_model,
-            user_comments=request.user_comments,
-            job_id=job_id
+            session_id=session_id,
+            data_path=session.file_path,
+            target_column=session.target_column,
+            problem_type=session.problem_type if session.problem_type != "auto" else None,
+            tune_model=session.tune_model,
+            user_comments=session.user_comments
         )
         
-        await save_job_status(job_id, JobStatus.RUNNING, progress=0.9)
-        
-        # Save results
-        workflow_path = f"backend/workflow_info/{job_id}_workflow_results.json"
-        # async with aiofiles.open(workflow_path, 'w') as f:
-        #     # await f.write(json.dumps(results, default=str, indent=2))
-        #     await f.write(json.dumps(results, default=make_json_safe, indent=2))
+        # Save workflow results
+        workflow_path = f"workflow_info/{session_id}_workflow_results.json"
         async with aiofiles.open(workflow_path, 'w') as f:
             await f.write(json.dumps(results, default=make_json_safe, indent=2))
         
-        # Update status to completed
-        # await save_job_status(
-        #     job_id, 
-        #     JobStatus.COMPLETED,
-        #     progress=1.0,
-        #     completed_at=datetime.utcnow().isoformat(),
-        #     results=results,
-        #     workflow_path=workflow_path
-        # )
-        
-        safe_results = json.loads(json.dumps(results, default=make_json_safe))
-        await save_job_status(
-            job_id, 
-            JobStatus.COMPLETED,
-            progress=1.0,
-            completed_at=datetime.utcnow().isoformat(),
-            results=safe_results,
-            workflow_path=workflow_path
+        # Update session with workflow path
+        session_manager.update_session(
+            session_id=session_id,
+            workflow_info_path=workflow_path
         )
-
-        logger.info(f"Job {job_id} completed successfully")
+        
+        # Clear cache for this session since it's updated
+        if session_id in session_status_cache:
+            del session_status_cache[session_id]
+        
+        logger.info(f"Workflow completed successfully for session {session_id}")
         
     except Exception as e:
-        logger.error(f"Job {job_id} failed: {str(e)}")
-        await save_job_status(
-            job_id,
-            JobStatus.FAILED,
-            error=str(e),
-            traceback=traceback.format_exc(),
-            completed_at=datetime.utcnow().isoformat()
+        logger.error(f"Workflow failed for session {session_id}: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Update session with error
+        session_manager.update_session(
+            session_id=session_id,
+            status=SessionStatus.FAILED,
+            error_message=str(e),
+            error_traceback=traceback.format_exc()
         )
+        
+        # Clear cache for this session
+        if session_id in session_status_cache:
+            del session_status_cache[session_id]
     finally:
         # Cleanup
-        if job_id in workflow_instances:
-            del workflow_instances[job_id]
+        if session_id in workflow_instances:
+            del workflow_instances[session_id]
+
 
 # API Endpoints
 
@@ -369,25 +300,28 @@ async def run_ml_workflow(job_id: str, data_path: str, request: TrainingRequest)
 async def root():
     """Health check endpoint"""
     return {
-        "message": "Agentic ML Workflow API",
+        "message": "Agentic ML Workflow API with Session Management",
         "status": "healthy",
         "timestamp": datetime.utcnow(),
-        "version": "1.0.0"
+        "version": "2.0.0"
     }
+
 
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Detailed health check"""
-    redis_status = "connected" if redis_client else "disconnected"
+    stats = session_manager.get_session_statistics() if session_manager else {}
     return {
         "status": "healthy",
-        "redis": redis_status,
-        "active_jobs": len(workflow_instances),
+        "active_workflows": len(workflow_instances),
+        "session_statistics": stats,
+        "cache_size": len(session_status_cache),
         "timestamp": datetime.utcnow()
     }
 
+
 @app.post("/train", response_model=TrainingResponse, tags=["Machine Learning"])
-@limiter.limit("10/minute")
+@limiter.limit("10/minute")  # Strict limit for resource-intensive operations
 async def train_model(
     request: Request,
     background_tasks: BackgroundTasks,
@@ -396,13 +330,12 @@ async def train_model(
     problem_type: Optional[str] = Form(ProblemType.AUTO),
     tune_model: bool = Form(False),
     user_comments: Optional[str] = Form(None)
-    # token: str = Depends(verify_token)
 ):
-    """Train a machine learning model"""
+    """
+    Train a machine learning model with session tracking
+    Creates a new session for each training request
+    """
     try:
-        # Validate and save file
-        file_path = await save_uploaded_file(file)
-        
         # Create training request
         training_request = TrainingRequest(
             target_column=target_column,
@@ -411,92 +344,119 @@ async def train_model(
             user_comments=user_comments
         )
         
-        # Generate job ID
-        current_time = datetime.now().strftime("%Y_%m_%d__%H_%M_%S")
-        id = str(uuid.uuid4())
-        job_id = current_time + "__" + id
+        # Create new session
+        session = session_manager.create_session(
+            filename=file.filename,
+            file_path="",  # Will be updated after file save
+            target_column=training_request.target_column,
+            problem_type=training_request.problem_type.value,
+            tune_model=training_request.tune_model,
+            user_comments=training_request.user_comments
+        )
         
-        # Save initial job status
-        await save_job_status(
-            job_id,
-            JobStatus.PENDING,
-            submitted_at=datetime.utcnow().isoformat(),
-            file_path=file_path,
-            request=training_request.dict()
+        # Save uploaded file
+        file_path = await save_uploaded_file(file, session.session_id)
+        
+        # Update session with file path
+        session_manager.update_session(
+            session_id=session.session_id,
+            file_path=file_path
         )
         
         # Start background task
-        background_tasks.add_task(run_ml_workflow, job_id, file_path, training_request)
+        background_tasks.add_task(run_ml_workflow, session.session_id)
         
-        logger.info(f"Started training job {job_id} for file {file.filename}")
+        logger.info(f"Started training session {session.session_id} for file {file.filename}")
         
         return TrainingResponse(
-            job_id=job_id,
-            status=JobStatus.PENDING,
-            message="Training job submitted successfully",
-            submitted_at=datetime.utcnow()
+            session_id=session.session_id,
+            job_id=session.job_id,
+            status=session.status,
+            message="Training session created successfully",
+            created_at=session.created_at
         )
         
     except Exception as e:
-        logger.error(f"Failed to submit training job: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to submit training job: {str(e)}")
+        logger.error(f"Failed to create training session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to create training session: {str(e)}")
 
-@app.get("/jobs/{job_id}", response_model=JobStatusResponse, tags=["Job Management"])
-@limiter.limit("30/minute")
-async def get_job_status_endpoint(
+
+@app.get("/sessions/{session_id}", response_model=SessionStatusResponse, tags=["Session Management"])
+# Using default rate limit of 200/minute - suitable for polling
+async def get_session_status(
     request: Request,
-    job_id: str
-    # token: str = Depends(verify_token)
+    session_id: str
 ):
-    """Get status of a training job"""
-    job_data = await get_job_status(job_id)
+    """
+    Get detailed status of a training session
+    Optimized with caching for frequent polling
+    """
+    # Check cache first
+    cached_response = get_cached_session_status(session_id)
+    if cached_response:
+        return cached_response
     
-    if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+    # Get fresh data
+    session = session_manager.get_session(session_id)
     
-    return JobStatusResponse(
-        job_id=job_id,
-        status=JobStatus(job_data.get("status", "unknown")),
-        progress=job_data.get("progress"),
-        submitted_at=datetime.fromisoformat(job_data.get("submitted_at", datetime.utcnow().isoformat())),
-        completed_at=datetime.fromisoformat(job_data["completed_at"]) if job_data.get("completed_at") else None,
-        results=json.loads(job_data["results"]) if job_data.get("results") and isinstance(job_data["results"], str) else job_data.get("results"),
-        error=job_data.get("error")
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    response = SessionStatusResponse(
+        session_id=session.session_id,
+        job_id=session.job_id,
+        status=session.status,
+        progress=session.progress,
+        current_step=session.current_step,
+        filename=session.filename,
+        target_column=session.target_column,
+        created_at=session.created_at,
+        updated_at=session.updated_at,
+        completed_at=session.completed_at,
+        inferred_problem_type=session.inferred_problem_type,
+        best_model_name=session.best_model_name,
+        metrics=session.metrics,
+        error_message=session.error_message
     )
+    
+    # Cache the response
+    cache_session_status(session_id, response)
+    
+    return response
 
-@app.get("/jobs", tags=["Job Management"])
-@limiter.limit("20/minute")
-async def list_jobs(
+
+@app.get("/sessions", tags=["Session Management"])
+@limiter.limit("50/minute")  # Moderate limit for list operations
+async def list_sessions(
     request: Request,
     limit: int = 50,
     offset: int = 0,
-    status: Optional[JobStatus] = None
-    # token: str = Depends(verify_token)
+    status: Optional[SessionStatus] = None
 ):
-    """List all jobs with pagination and filtering"""
+    """List all sessions with pagination and filtering"""
     try:
-        if redis_client:
-            # Get job keys from Redis
-            keys = await redis_client.keys("job:*")
-            all_jobs = []
-            for key in keys:
-                job_data = await redis_client.hgetall(key)
-                if job_data and (not status or job_data.get("status") == status.value):
-                    all_jobs.append(job_data)
-        else:
-            # Get jobs from memory
-            all_jobs = [job for job in jobs_db.values() 
-                       if not status or job.get("status") == status.value]
-        
-        # Sort by submission time (most recent first)
-        all_jobs.sort(key=lambda x: x.get("submitted_at", ""), reverse=True)
-        
-        # Apply pagination
-        total = len(all_jobs)
-        jobs = all_jobs[offset:offset + limit]
+        sessions, total = session_manager.list_sessions(
+            status=status,
+            limit=limit,
+            offset=offset
+        )
         
         return {
-            "jobs": jobs,
+            "sessions": [
+                {
+                    "session_id": s.session_id,
+                    "job_id": s.job_id,
+                    "filename": s.filename,
+                    "status": s.status.value,
+                    "progress": s.progress,
+                    "created_at": s.created_at.isoformat(),
+                    "updated_at": s.updated_at.isoformat(),
+                    "completed_at": s.completed_at.isoformat() if s.completed_at else None,
+                    "inferred_problem_type": s.inferred_problem_type,
+                    "best_model_name": s.best_model_name
+                }
+                for s in sessions
+            ],
             "total": total,
             "limit": limit,
             "offset": offset,
@@ -504,320 +464,205 @@ async def list_jobs(
         }
         
     except Exception as e:
-        logger.error(f"Failed to list jobs: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve jobs")
+        logger.error(f"Failed to list sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve sessions")
 
-@app.delete("/jobs/{job_id}", tags=["Job Management"])
-@limiter.limit("10/minute")
-async def cancel_job(
+
+@app.delete("/sessions/{session_id}", tags=["Session Management"])
+@limiter.limit("20/minute")  # Moderate limit for delete operations
+async def delete_session(
     request: Request,
-    job_id: str
-    # token: str = Depends(verify_token)
+    session_id: str
 ):
-    """Cancel a running job"""
-    job_data = await get_job_status(job_id)
+    """Delete a session and its artifacts"""
+    session = session_manager.get_session(session_id)
     
-    if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
     
-    if job_data.get("status") in [JobStatus.COMPLETED.value, JobStatus.FAILED.value]:
-        raise HTTPException(status_code=400, detail="Cannot cancel completed or failed job")
+    if session.status in [SessionStatus.RUNNING]:
+        raise HTTPException(status_code=400, detail="Cannot delete running session")
     
-    # Cancel the job
-    if job_id in workflow_instances:
-        del workflow_instances[job_id]
+    # Delete session
+    success = session_manager.delete_session(session_id)
     
-    await save_job_status(
-        job_id,
-        JobStatus.FAILED,
-        error="Job cancelled by user",
-        completed_at=datetime.utcnow().isoformat()
-    )
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete session")
     
-    logger.info(f"Job {job_id} cancelled by user")
+    # Cancel workflow if active
+    if session_id in workflow_instances:
+        del workflow_instances[session_id]
     
-    return {"message": "Job cancelled successfully", "job_id": job_id}
+    # Clear cache
+    if session_id in session_status_cache:
+        del session_status_cache[session_id]
+    
+    logger.info(f"Session {session_id} deleted")
+    
+    return {"message": "Session deleted successfully", "session_id": session_id}
 
 
-
-@app.get("/jobs/{job_id}/code", tags=["Code"])
-async def download_code(
-    job_id: str
-    # token: str = Depends(verify_token)
-):
-    """Download job Code as .py file"""
-    job_data = await get_job_status(job_id)
+@app.get("/sessions/{session_id}/code", tags=["Artifacts"])
+# Using default rate limit - file downloads are read operations
+async def download_code(session_id: str):
+    """Download generated code for a session"""
+    session = session_manager.get_session(session_id)
     
-    if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
     
-    if job_data.get("status") != JobStatus.COMPLETED.value:
-        raise HTTPException(status_code=400, detail="Job not completed")
+    if session.status != SessionStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Session not completed")
     
-    code_path = job_data.get("generated_code_path", f"backend/generated_code/{job_id}_code.py")
-    
-    if not os.path.exists(code_path):
+    if not session.generated_code_path or not os.path.exists(session.generated_code_path):
         raise HTTPException(status_code=404, detail="Code file not found")
     
     return FileResponse(
-        code_path,
+        session.generated_code_path,
         media_type="text/x-python",
-        filename=f"ml_code_{job_id}.py"
+        filename=f"ml_code_{session_id}.py"
     )
 
-@app.get("/jobs/{job_id}/results", tags=["Results"])
-async def download_results(
-    job_id: str
-    # token: str = Depends(verify_token)
-):
-    """Download job results as JSON file"""
-    job_data = await get_job_status(job_id)
+
+@app.get("/sessions/{session_id}/results", tags=["Artifacts"])
+async def download_results(session_id: str):
+    """Download results JSON for a session"""
+    session = session_manager.get_session(session_id)
     
-    if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
     
-    if job_data.get("status") != JobStatus.COMPLETED.value:
-        raise HTTPException(status_code=400, detail="Job not completed")
+    if session.status != SessionStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Session not completed")
     
-
-    print(f"\n\n <<<<< Job Data: {job_data} >>>>>")
-
-    problem_type = job_data["results"]["problem_type"]
-    # if problem_type == "classification":
-    #     results_path = job_data.get("results_path", f"results/{job_id}_classification_results.json")
-    # else:
-    results_path = job_data.get("results_path", f"backend/results/{job_id}_{problem_type}_results.json")
-
-    print(f"\n\n <<<<< Results Path: {results_path} >>>>>")
-
-    if not os.path.exists(results_path):
+    if not session.results_path or not os.path.exists(session.results_path):
         raise HTTPException(status_code=404, detail="Results file not found")
     
     return FileResponse(
-        results_path,
+        session.results_path,
         media_type="application/json",
-        filename=f"ml_results_{job_id}.json"
+        filename=f"ml_results_{session_id}.json"
     )
 
 
-
-# import json
-# import os
-# from fastapi import HTTPException
-# from fastapi.responses import FileResponse
-
-# @app.get("/jobs/{job_id}/results", tags=["Results"])
-# async def download_results(job_id: str):
-#     """Download filtered job results as JSON file"""
-#     job_data = await get_job_status(job_id)
+@app.get("/sessions/{session_id}/summary", tags=["Artifacts"])
+async def download_summary(session_id: str):
+    """Download AI-generated summary for a session"""
+    session = session_manager.get_session(session_id)
     
-#     if not job_data:
-#         raise HTTPException(status_code=404, detail="Job not found")
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
     
-#     if job_data.get("status") != JobStatus.COMPLETED.value:
-#         raise HTTPException(status_code=400, detail="Job not completed")
+    if session.status != SessionStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Session not completed")
     
-#     results_path = job_data.get("results_path", f"results/{job_id}_results.json")
-
-#     if not os.path.exists(results_path):
-#         raise HTTPException(status_code=404, detail="Results file not found")
+    if not session.ai_summary_path or not os.path.exists(session.ai_summary_path):
+        raise HTTPException(status_code=404, detail="Summary file not found")
     
-#     # Load the full results file
-#     with open(results_path, "r") as f:
-#         results = json.load(f)
-    
-#     # Keep only the required fields
-#     filtered_results = {
-#         "problem_type": results.get("problem_type"),
-#         "metrics": results.get("metrics"),
-#         "data_schema": results.get("data_schema"),
-#     }
-    
-#     # Overwrite or create a filtered file
-#     filtered_path = f"results/filtered/{job_id}_filtered_results.json"
-#     with open(filtered_path, "w") as f:
-#         json.dump(filtered_results, f, indent=4)
-    
-#     return FileResponse(
-#         filtered_path,
-#         media_type="application/json",
-#         filename=f"ml_results_{job_id}.json"
-#     )
-
-
-
-@app.get("/jobs/{job_id}/ai_summary", tags=["AI Summary"])
-async def download_ai_summary(job_id: str):
-    """Download AI Summarized Results as Markdown file"""
-    job_data = await get_job_status(job_id)
-    
-    if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    if job_data.get("status") != JobStatus.COMPLETED.value:
-        raise HTTPException(status_code=400, detail="Job not completed")
-
-    summary_path = job_data.get("summarized_result_path")
-    print(f"\n\n <<<<< Job Data Summary Path: {summary_path} >>>>>")
-
-    summary_path = job_data.get("summarized_result_path", f'backend/ai_summary/{job_id}_summary.md')
-
-    print(f"\n\n <<<<< Summary Path: {summary_path} >>>>>")
-
-    if not summary_path or not os.path.exists(summary_path):
-        raise HTTPException(status_code=404, detail="Summarized result file not found")
-    
-    # Inline View
     return FileResponse(
-        summary_path,
+        session.ai_summary_path,
         media_type="text/markdown",
-        filename=f"ai_summary_{job_id}.md"
+        filename=f"ai_summary_{session_id}.md"
     )
 
-    # # Force download
-    # return FileResponse(
-    #     summary_path,
-    #     media_type="application/octet-stream",  # makes browser download instead of open
-    #     filename=f"ai_summary_{job_id}.md"
-    # )
 
-
-
-
-@app.get("/jobs/{job_id}/model", tags=["Models"])
-async def download_model(
-    job_id: str
-    # token: str = Depends(verify_token)
-):
-    """Download trained model file"""
-    job_data = await get_job_status(job_id)
+@app.get("/sessions/{session_id}/model", tags=["Artifacts"])
+async def download_model(session_id: str):
+    """Download trained model for a session"""
+    session = session_manager.get_session(session_id)
     
-    if not job_data:
-        raise HTTPException(status_code=404, detail="Job not found")
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
     
-    if job_data.get("status") != JobStatus.COMPLETED.value:
-        raise HTTPException(status_code=400, detail="Job not completed")
+    if session.status != SessionStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Session not completed")
     
-    results = job_data.get("results")
-    if not results:
-        raise HTTPException(status_code=404, detail="Job results not found")
-    
-    if isinstance(results, str):
-        results = json.loads(results)
-    
-    model_path = results.get("model_path")
-    if not model_path or not os.path.exists(model_path):
+    if not session.model_path or not os.path.exists(session.model_path):
         raise HTTPException(status_code=404, detail="Model file not found")
     
-    # return FileResponse(
-    #     model_path,
-    #     media_type="application/octet-stream",
-    #     filename=f"model_{job_id}."
-    # )
     return FileResponse(
-    model_path,
-    media_type="application/zip",
-    filename=f"model_{job_id}.zip"
-)
+        session.model_path,
+        media_type="application/zip",
+        filename=f"model_{session_id}.zip"
+    )
 
 
-
-
-@app.post("/batch-train", tags=["Machine Learning"])
-@limiter.limit("5/hour")
-async def batch_train(
-    request: Request,
-    background_tasks: BackgroundTasks,
-    batch_request: BatchTrainingRequest,
-    files: List[UploadFile] = File(...)
-    # token: str = Depends(verify_token)
-):
-    """Submit multiple training jobs"""
-    if len(files) != len(batch_request.jobs):
-        raise HTTPException(
-            status_code=400, 
-            detail="Number of files must match number of jobs"
-        )
-    
-    job_ids = []
-    
-    for i, (file, job_request) in enumerate(zip(files, batch_request.jobs)):
-        try:
-            # Save file
-            file_path = await save_uploaded_file(file)
-            
-            # Generate job ID
-            job_id = str(uuid.uuid4())
-            job_ids.append(job_id)
-            
-            # Save job status
-            await save_job_status(
-                job_id,
-                JobStatus.PENDING,
-                submitted_at=datetime.utcnow().isoformat(),
-                file_path=file_path,
-                request=job_request.dict(),
-                batch_index=i
-            )
-            
-            # Start background task
-            background_tasks.add_task(run_ml_workflow, job_id, file_path, job_request)
-            
-        except Exception as e:
-            logger.error(f"Failed to submit batch job {i}: {str(e)}")
-            # Clean up already submitted jobs could be added here
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Failed to submit batch job {i}: {str(e)}"
-            )
-    
-    logger.info(f"Submitted batch training with {len(job_ids)} jobs")
-    
-    return {
-        "message": f"Batch training submitted successfully with {len(job_ids)} jobs",
-        "job_ids": job_ids,
-        "submitted_at": datetime.utcnow()
-    }
-
-@app.get("/metrics", tags=["Monitoring"])
-async def get_system_metrics():  # token: str = Depends(verify_token)
-    """Get system metrics and statistics"""
+@app.get("/sessions/export/excel", tags=["Export"])
+@limiter.limit("10/minute")  # Stricter limit for export operations
+async def export_sessions_excel(request: Request):
+    """Export all sessions to Excel file"""
     try:
-        # Job statistics
-        if redis_client:
-            keys = await redis_client.keys("job:*")
-            all_jobs = []
-            for key in keys:
-                job_data = await redis_client.hgetall(key)
-                if job_data:
-                    all_jobs.append(job_data)
-        else:
-            all_jobs = list(jobs_db.values())
+        if not session_manager.sessions_file.exists():
+            raise HTTPException(status_code=404, detail="No sessions found")
         
-        status_counts = {}
-        for status in JobStatus:
-            status_counts[status.value] = sum(1 for job in all_jobs if job.get("status") == status.value)
+        return FileResponse(
+            session_manager.sessions_file,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            filename=f"sessions_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        )
+    except Exception as e:
+        logger.error(f"Failed to export sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to export sessions")
+
+
+@app.get("/statistics", tags=["Monitoring"])
+async def get_statistics():
+    """Get system statistics"""
+    try:
+        stats = session_manager.get_session_statistics()
         
-        # System info
         return {
-            "total_jobs": len(all_jobs),
-            "active_jobs": len(workflow_instances),
-            "job_status_distribution": status_counts,
-            "system_info": {
-                "redis_connected": redis_client is not None,
+            "session_statistics": stats,
+            "active_workflows": len(workflow_instances),
+            "cache_statistics": {
+                "cached_sessions": len(session_status_cache),
+                "cache_ttl_seconds": CACHE_TTL_SECONDS
+            },
+            "storage_info": {
+                "sessions_file_size": os.path.getsize(session_manager.sessions_file) if session_manager.sessions_file.exists() else 0,
                 "upload_directory_size": sum(
                     os.path.getsize(os.path.join("uploads", f)) 
                     for f in os.listdir("uploads") 
                     if os.path.isfile(os.path.join("uploads", f))
                 ) if os.path.exists("uploads") else 0,
-                "models_count": len([f for f in os.listdir("models") if f.endswith('.pkl')]) if os.path.exists("models") else 0
             },
             "timestamp": datetime.utcnow()
         }
-        
     except Exception as e:
-        logger.error(f"Failed to get metrics: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to retrieve metrics")
+        logger.error(f"Failed to get statistics: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve statistics")
+
+
+@app.post("/admin/cleanup", tags=["Admin"])
+@limiter.limit("5/hour")  # Very strict limit for admin operations
+async def cleanup_old_sessions(request: Request, days: int = 30):
+    """Cleanup sessions older than specified days"""
+    try:
+        removed = session_manager.cleanup_old_sessions(days=days)
+        
+        # Clear entire cache after cleanup
+        session_status_cache.clear()
+        
+        return {
+            "message": f"Cleaned up {removed} sessions older than {days} days",
+            "removed_count": removed
+        }
+    except Exception as e:
+        logger.error(f"Failed to cleanup sessions: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to cleanup sessions")
+
+
+@app.post("/admin/clear-cache", tags=["Admin"])
+@limiter.limit("10/minute")
+async def clear_cache(request: Request):
+    """Clear the session status cache"""
+    cache_size = len(session_status_cache)
+    session_status_cache.clear()
+    return {
+        "message": f"Cache cleared successfully",
+        "cleared_entries": cache_size
+    }
+
 
 # Error handlers
 @app.exception_handler(HTTPException)
@@ -827,6 +672,7 @@ async def http_exception_handler(request, exc):
         status_code=exc.status_code,
         content={"error": exc.detail, "timestamp": datetime.utcnow().isoformat()}
     )
+
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request, exc):
@@ -839,12 +685,12 @@ async def general_exception_handler(request, exc):
         }
     )
 
+
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=False,
-        access_log=True,
-        workers=1  # Use 1 worker for development, increase for production
+        reload=True,
+        log_level="info"
     )

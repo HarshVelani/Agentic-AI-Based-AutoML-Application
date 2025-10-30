@@ -1,6 +1,154 @@
-from code.state import MLWorkflowState
-from code.llm_manager import LLMManager
-from code.prompts import (
+from langgraph.graph import StateGraph, END
+from src.ml_config import MLConfig
+from src.state import MLWorkflowState
+from typing import Dict, Any, Optional
+from src.pipeline_generator import PipelineGenerator
+
+
+
+class AgenticMLWorkflow:
+    """Main Agentic ML Workflow class"""
+    
+    def __init__(self):
+        
+        self.pg = PipelineGenerator()
+        # Build the workflow graph
+        self.workflow = self._build_workflow()
+    
+    def _build_workflow(self) -> StateGraph:
+        """Build the LangGraph workflow"""
+        workflow = StateGraph(MLWorkflowState)
+        
+        # Add nodes
+        workflow.add_node("schema_analyzer", self.pg._schema_analyzer_agent)
+        workflow.add_node("problem_classifier", self.pg._problem_classifier_agent)
+        workflow.add_node("pipeline_generator", self.pg._pipeline_generator_agent)
+        workflow.add_node("code_executor", self.pg._code_executor_node)
+        workflow.add_node("best_model", self.pg._best_model)
+        workflow.add_node("result_summarizer", self.pg._result_summarizer)
+        workflow.add_node("tuning_agent", self.pg._tuning_agent)
+        
+        # Add edges
+        workflow.add_edge("schema_analyzer", "problem_classifier")
+        workflow.add_edge("problem_classifier", "pipeline_generator")
+        workflow.add_edge("pipeline_generator", "code_executor")
+        workflow.add_edge("code_executor", "best_model")
+        workflow.add_edge("best_model", "result_summarizer")
+        workflow.add_conditional_edges(
+            "result_summarizer",
+            self.pg._should_tune,
+            {
+                "tune": "tuning_agent",
+                "end": END
+            }
+        )
+        workflow.add_edge("tuning_agent", END)
+        
+        # Set entry point
+        workflow.set_entry_point("schema_analyzer")
+        
+        return workflow.compile()
+    
+
+    def run_workflow(self, data_path: str, target_column: str, 
+                    problem_type: Optional[str] = None, 
+                    tune_model: bool = False,
+                    user_comments: Optional[str] = None,
+                    job_id: Optional[str] = "1") -> Dict[str, Any]:
+        """Run the complete ML workflow"""
+        
+        # Initialize state
+        initial_state = MLWorkflowState(
+            session_id=job_id,
+            data_path=data_path,
+            target_column=target_column,
+            problem_type=problem_type,
+            user_comments=user_comments or "",
+            data_schema={},
+            inferred_problem_type="",
+            pipeline_code="",
+            pipeline_code_path="",
+            execution_results={},
+            model_path="",
+            results_path="",
+            best_model_name="",
+            summarized_result="",
+            summarized_result_path="",
+            metrics={},
+            tune_requested=tune_model,
+            tuning_code="",
+            tuned_model_path="",
+            messages=[],
+            errors=[]
+        )
+        
+        # Run workflow
+        final_state = self.workflow.invoke(initial_state)
+        
+
+        print(f"\n\n <<<<< Final State: \n{final_state} >>>>>")
+        # Prepare results
+        results = {
+            "problem_type": final_state["inferred_problem_type"],
+            "metrics": final_state["execution_results"],
+            "model_path": final_state.get("tuned_model_path") or final_state["model_path"],
+            "results_path": final_state["results_path"],
+            "pipeline_code_path": final_state["pipeline_code_path"],
+            "summarized_result_path": final_state["summarized_result_path"],
+            "best_model_name": final_state["best_model_name"],
+            "summarized_result": final_state["summarized_result"],
+            "messages": final_state["messages"],
+            "errors": final_state["errors"],
+            "data_schema": final_state["data_schema"]
+        }
+        
+
+        print(f"\n <<<<< Final State: {results} >>>>>")
+        return results
+    
+
+
+from typing import Dict, Any, List, Optional, Literal
+from typing_extensions import TypedDict
+
+class MLWorkflowState(TypedDict):
+    """State management for the ML workflow"""
+    # Input data
+    session_id: str
+    data_path: str
+    target_column: str
+    problem_type: Optional[str]
+    user_comments: str
+    
+    
+    # Analysis results
+    data_schema: Dict[str, Any]
+    inferred_problem_type: str 
+    
+    # Generated code and results
+    pipeline_code: str
+    pipeline_code_path: str
+    execution_results: Dict[str, Any]
+    model_path: str
+    results_path: str
+    summarized_result: str
+    summarized_result_path: str
+    best_model_name: str
+    metrics: Dict[str, Any]
+    
+    # Tuning related
+    tune_requested: bool
+    tuning_code: str
+    tuned_model_path: str
+    
+    # Messages and errors
+    messages: List[str]
+    errors: List[str]
+
+
+from src.state import MLWorkflowState
+from src.llm_manager import LLMManager
+from src.prompts import (
     problem_classifier_prompt,
     pipeline_generator_prompt,
     hyperparameter_tuning_prompt,
@@ -10,6 +158,7 @@ from code.prompts import (
 import pandas as pd
 import numpy as np
 import os
+import time
 
 # ML Libraries
 from sklearn.model_selection import train_test_split, GridSearchCV, RandomizedSearchCV
@@ -143,16 +292,17 @@ class PipelineGenerator:
 
             print(f"\n <<<<< Generated Pipeline Code: \n{state['pipeline_code']} >>>>>")
 
-            path = f'backend/generated_code/{session_id}_code.py'
-            with open(path, 'w') as f:
+            path = f'generated_code/{session_id}_code.py'
+            with open(path, 'w', encoding='utf-8') as f:
                 # codes = visual_code.split('\n')
                 # code = "\n".join(codes[1:-1])
-                print("\n====Cleaned Code====")
                 f.write(code)
+                print("\n====Cleaned Code====")
 
+            time.sleep(2)
             # Update state with cleaned code and model_path and results_path
-            state["model_path"] = f'backend/model/{session_id}_{problem_type}_models.zip'
-            state["results_path"] = f'backend/results/{session_id}_{problem_type}_results.json'
+            state["model_path"] = f'model/{session_id}_{problem_type}_models.zip'
+            state["results_path"] = f'results/{session_id}_{problem_type}_results.json'
             state["pipeline_code_path"] = path
             state["pipeline_code"] = code.strip()
             state["messages"].append("✅ ML pipeline code generated")
@@ -174,10 +324,7 @@ class PipelineGenerator:
 
         session_id = state["session_id"]
 
-        os.system(f"python backend/generated_code/{session_id}_code.py")
-
-        problem_type = state["inferred_problem_type"].lower()
-        # filepath = f"results/{problem_type}/{session_id}_{problem_type}_results.json"
+        os.system(f"python generated_code/{session_id}_code.py")
 
         filepath = state["results_path"]
         with open(filepath, 'r') as f:
@@ -189,148 +336,6 @@ class PipelineGenerator:
         print(f"\n <<<<< Execution Results: {results} >>>>>")
 
         return state
-
-
-        #     # Prepare execution environment
-        #     exec_globals = {
-        #         'pd': pd,
-        #         'np': np,
-        #         'pickle': pickle,
-        #         'train_test_split': train_test_split,
-        #         'LinearRegression': LinearRegression,
-        #         'LogisticRegression': LogisticRegression,
-        #         'RandomForestClassifier': RandomForestClassifier,
-        #         'RandomForestRegressor': RandomForestRegressor,
-        #         'XGBRegressor': xgb.XGBRegressor,
-        #         'XGBClassifier': xgb.XGBClassifier,
-        #         'accuracy_score': accuracy_score,
-        #         'precision_score': precision_score,
-        #         'recall_score': recall_score,
-        #         'f1_score': f1_score,
-        #         'confusion_matrix': confusion_matrix,
-        #         'mean_squared_error': mean_squared_error,
-        #         'mean_absolute_error': mean_absolute_error,
-        #         'r2_score': r2_score,
-        #         'LabelEncoder': LabelEncoder,
-        #         'StandardScaler': StandardScaler,
-        #         'data_path': state["data_path"],
-        #         'target_column': state["target_column"]
-        #     }
-            
-        #     # Execute the code
-        #     exec(state["pipeline_code"], exec_globals)
-            
-        #     # Extract results
-        #     if 'results' in exec_globals:
-        #         state["execution_results"] = exec_globals['results']
-        #         state["messages"].append("✅ Pipeline executed successfully")
-        #     else:
-        #         state["errors"].append("Code execution completed but no results found")
-            
-        # except Exception as e:
-        #     state["errors"].append(f"Code execution failed: {str(e)}")
-        
-        # return state
-
-
-
-
-
-        # try:
-        #     # Prepare execution environment
-        #     exec_globals = {
-        #         'pd': pd,
-        #         'np': np,
-        #         'pickle': pickle,
-        #         'joblib': pickle,  # Alternative for model saving
-        #         'train_test_split': train_test_split,
-        #         'LinearRegression': LinearRegression,
-        #         'LogisticRegression': LogisticRegression,
-        #         'RandomForestClassifier': RandomForestClassifier,
-        #         'RandomForestRegressor': RandomForestRegressor,
-        #         'XGBRegressor': xgb.XGBRegressor,
-        #         'XGBClassifier': xgb.XGBClassifier,
-        #         'accuracy_score': accuracy_score,
-        #         'precision_score': precision_score,
-        #         'recall_score': recall_score,
-        #         'f1_score': f1_score,
-        #         'confusion_matrix': confusion_matrix,
-        #         'mean_squared_error': mean_squared_error,
-        #         'mean_absolute_error': mean_absolute_error,
-        #         'r2_score': r2_score,
-        #         'LabelEncoder': LabelEncoder,
-        #         'StandardScaler': StandardScaler,
-        #         'data_path': state["data_path"],
-        #         'target_column': state["target_column"],
-        #         '__builtins__': __builtins__
-        #     }
-            
-        #     # Create a local scope for execution
-        #     exec_locals = {}
-            
-        #     # Execute the code with both global and local scopes
-        #     exec(state["pipeline_code"], exec_globals, exec_locals)
-            
-        #     # Try to extract results from multiple possible locations
-        #     results = None
-            
-        #     # Check local scope first
-        #     if 'results' in exec_locals:
-        #         results = exec_locals['results']
-        #     # Check global scope
-        #     elif 'results' in exec_globals:
-        #         results = exec_globals['results']
-        #     # Check for other common variable names
-        #     elif 'final_results' in exec_locals:
-        #         results = exec_locals['final_results']
-        #     elif 'output' in exec_locals:
-        #         results = exec_locals['output']
-        #     elif 'model_results' in exec_locals:
-        #         results = exec_locals['model_results']
-            
-        #     if results:
-        #         state["execution_results"] = results
-        #         state["messages"].append("✅ Pipeline executed successfully")
-                
-        #         # Debug: Print what we found
-        #         state["messages"].append(f"📊 Results keys: {list(results.keys()) if isinstance(results, dict) else 'Not a dict'}")
-        #     else:
-        #         # If no results variable found, try to construct results from available variables
-        #         constructed_results = {}
-                
-        #         # Look for common result patterns
-        #         for var_name, var_value in exec_locals.items():
-        #             if 'metric' in var_name.lower() or 'score' in var_name.lower():
-        #                 constructed_results[var_name] = var_value
-        #             elif var_name in ['best_model', 'model', 'trained_model']:
-        #                 constructed_results['model'] = var_value
-        #             elif var_name in ['model_path', 'saved_model_path']:
-        #                 constructed_results['model_path'] = var_value
-                
-        #         if constructed_results:
-
-        #             print(f"\n <<<<< Constructed Results: {constructed_results} >>>>>")
-        #             state["execution_results"] = {'metrics': constructed_results, 'model_path': 'best_model.pkl'}
-        #             state["messages"].append("✅ Pipeline executed, results constructed from variables")
-        #         else:
-        #             state["errors"].append("Code execution completed but no results found. Available variables: " + 
-        #                                  str(list(exec_locals.keys())[:10]))  # Show first 10 variables for debugging
-            
-        # except SyntaxError as e:
-        #     state["errors"].append(f"Code syntax error: {str(e)}")
-        #     state["messages"].append("❌ Generated code has syntax errors")
-        # except ImportError as e:
-        #     state["errors"].append(f"Import error: {str(e)}")
-        #     state["messages"].append("❌ Missing required libraries")
-        # except FileNotFoundError as e:
-        #     state["errors"].append(f"File not found: {str(e)}")
-        #     state["messages"].append("❌ Data file not found")
-        # except Exception as e:
-        #     state["errors"].append(f"Code execution failed: {str(e)}")
-        #     state["messages"].append(f"❌ Execution error: {type(e).__name__}")
-        
-        # return state
-
 
     def _best_model(self, state: MLWorkflowState) -> MLWorkflowState:
         
@@ -349,7 +354,7 @@ class PipelineGenerator:
             state["best_model_name"] = best_model_name
             state["messages"].append(f"✅ Best model identified: {best_model_name}")
 
-            print(f"\n\n <<<<< Best Model: {state["best_model_name"]} >>>>>")
+            # print(f"\n\n <<<<< Best Model: {state["best_model_name"]} >>>>>")
 
         except Exception as e:
             state["errors"].append(f"Best model identification failed: {str(e)}")
@@ -366,13 +371,6 @@ class PipelineGenerator:
             data_schema = state["data_schema"]
             results = state["execution_results"]
             best_model = state["best_model_name"]
-            # problem_type = state["inferred_problem_type"]
-            # target_col = state["target_column"]
-            # data_path = state["data_path"]
-            # results_path = state["results_path"]
-            # model_path = state["model_path"]
-            # user_comments = state["user_comments"]
-            # session_id = state["session_id"]
             
             response = self.llm.invoke(result_summarizer_prompt, 
                                        data_schema=data_schema,
@@ -385,12 +383,13 @@ class PipelineGenerator:
             state["summarized_result"] = response.strip()
 
             # save summary to .md file
-            path = f'backend/ai_summary/{state["session_id"]}_summary.md'
-            with open(path, 'w') as f:
+            path = f'ai_summary/{state["session_id"]}_summary.md'
+
+            with open(path, 'w', encoding='utf-8') as f:
                 f.write(response)
 
             state["summarized_result_path"] = path
-            print(f"\n <<<<< Summary saved to: {state["summarized_result_path"]} >>>>>")
+            # print(f"\n <<<<< Summary saved to: {state["summarized_result_path"]} >>>>>")
 
             state["messages"].append("✅ Results summarized")
         
@@ -398,76 +397,6 @@ class PipelineGenerator:
             state["errors"].append(f"Result summarization failed: {str(e)}")
 
         return state
-
-    # def report_generator(self, state: MLWorkflowState) -> MLWorkflowState:
-    #     """Generate a summary report of the workflow"""
-    #     try:
-
-    #         print(f"\n\n\n <<<<< Report Generator Invoked >>>>>")
-
-    #         report_lines = [
-    #             "### Workflow Summary Report",
-    #             f"- **Data Path:** {state['data_path']}",
-    #             f"- **Target Column:** {state['target_column']}",
-    #             f"- **Inferred Problem Type:** {state.get('inferred_problem_type', 'N/A')}",
-    #             f"- **Best Model:** {state.get('best_model_name', 'N/A')}",
-    #             "- **Metrics:**"
-    #         ]
-            
-    #         metrics = state.get("metrics", {})
-    #         for metric, value in metrics.items():
-    #             report_lines.append(f"  - {metric}: {value}")
-            
-    #         if state["errors"]:
-    #             report_lines.append("\n- **Errors Encountered:**")
-    #             for error in state["errors"]:
-    #                 report_lines.append(f"  - {error}")
-    #         else:
-    #             report_lines.append("\n- No errors encountered.")
-            
-    #         state["report"] = "\n".join(report_lines)
-    #         state["messages"].append("✅ Summary report generated")
-
-    #         print(f"\n <<<<< Generated Report: \n{state['report']} >>>>>")
-
-    #     except Exception as e:
-    #         state["errors"].append(f"Report generation failed: {str(e)}")
-        
-    #     return state
-
-
-
-
-
-
-    # def _evaluation_agent(self, state: MLWorkflowState) -> MLWorkflowState:
-    #     """Evaluate model performance and prepare results"""
-    #     # try:
-
-    #     print(f"\n\n\n <<<<< Evaluation Agent Invoked >>>>>")
-
-    #     if state.get("execution_results"):
-
-    #         print(f"\n <<<<< Execution Results: {state['execution_results']} >>>>>")
-
-    #         results = state["execution_results"]
-    #         state["metrics"] = results.get("metrics", {})
-    #         state["model_path"] = results.get("model_path", "trained_model/best_model.pkl")
-            
-    #         # Format metrics for display
-    #         if state["inferred_problem_type"] == "Regression":
-    #             metrics_str = f"RMSE: {state['metrics'].get('rmse', 'N/A')}, MAE: {state['metrics'].get('mae', 'N/A')}, R²: {state['metrics'].get('r2', 'N/A')}"
-    #         else:
-    #             metrics_str = f"Accuracy: {state['metrics'].get('accuracy', 'N/A')}, F1: {state['metrics'].get('f1', 'N/A')}"
-            
-    #         state["messages"].append(f"✅ Model evaluation completed - {metrics_str}")
-    #     else:
-    #         state["errors"].append("No execution results to evaluate")
-        
-    #     except Exception as e:
-    #         state["errors"].append(f"Evaluation failed: {str(e)}")
-        
-    #     return state
     
     def _tuning_agent(self, state: MLWorkflowState) -> MLWorkflowState:
         """Perform hyperparameter tuning if requested"""
@@ -528,3 +457,24 @@ class PipelineGenerator:
         print(f"\n\n\n <<<<< Should Tune Invoked >>>>>")
 
         return "tune" if state.get("tune_requested", False) else "end"
+    
+
+from langchain_groq import ChatGroq
+from dotenv import load_dotenv
+import os
+load_dotenv()  # Load environment variables from .env file
+
+from langchain_core.prompts import ChatPromptTemplate
+
+
+class LLMManager:
+    """Manager for LLM interactions"""
+        
+    def __init__(self):
+        self.llm = ChatGroq(model="openai/gpt-oss-120b", temperature=0, api_key=os.getenv("GROQ_API_KEY"))
+
+    def invoke(self, prompt: ChatPromptTemplate, **kwargs) -> str:
+        messages = prompt.format_messages(**kwargs)
+        response = self.llm.invoke(messages)
+        return response.content
+        
