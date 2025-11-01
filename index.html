@@ -65,8 +65,6 @@
             border-radius: 15px;
             padding: 25px;
             box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
-            overflow: hidden;
-            min-width: 0;
         }
 
         .section-title {
@@ -288,12 +286,10 @@
 
         .tab-content {
             display: none;
-            min-width: 0;
         }
 
         .tab-content.active {
             display: block;
-            min-width: 0;
         }
 
         .code-container {
@@ -336,86 +332,30 @@
             font-size: 14px;
         }
 
-        .data-table-wrapper {
-            width: 100%;
-            overflow-x: auto;
-            overflow-y: visible;
-            margin: 20px 0;
-            border-radius: 8px;
-            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
-            background: white;
-            -webkit-overflow-scrolling: touch;
-            position: relative;
-            max-width: 100%;
-        }
-
-        .data-table-wrapper::-webkit-scrollbar {
-            height: 10px;
-        }
-
-        .data-table-wrapper::-webkit-scrollbar-track {
-            background: #f1f1f1;
-            border-radius: 5px;
-        }
-
-        .data-table-wrapper::-webkit-scrollbar-thumb {
-            background: #888;
-            border-radius: 5px;
-        }
-
-        .data-table-wrapper::-webkit-scrollbar-thumb:hover {
-            background: #555;
-        }
-
         .data-table {
-            width: auto;
-            min-width: 100%;
+            width: 100%;
             border-collapse: collapse;
+            margin: 20px 0;
             background: white;
-            display: table;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
         }
 
         .data-table th {
             background: #34495e;
             color: white;
-            padding: 12px 16px;
+            padding: 12px;
             text-align: left;
-            white-space: nowrap;
-            font-weight: 600;
-            border-right: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .data-table th:last-child {
-            border-right: none;
         }
 
         .data-table td {
-            padding: 12px 16px;
+            padding: 12px;
             border-bottom: 1px solid #e0e0e0;
-            border-right: 1px solid #f0f0f0;
-            white-space: nowrap;
-        }
-
-        .data-table td:last-child {
-            border-right: none;
         }
 
         .data-table tr:hover {
             background: #f8f9fa;
-        }
-
-        .data-table tr:last-child td {
-            border-bottom: none;
-        }
-
-        #dataPreviewContainer {
-            max-height: 500px;
-            overflow: auto;
-            min-width: 0;
-        }
-
-        #summaryContainer {
-            min-width: 0;
         }
 
         .markdown-content {
@@ -424,9 +364,8 @@
             border-radius: 8px;
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
             max-height: 500px;
-            overflow: auto;
+            overflow-y: auto;
             line-height: 1.6;
-            min-width: 0;
         }
 
         .markdown-content h1, .markdown-content h2, .markdown-content h3 {
@@ -717,24 +656,23 @@
                 }
 
                 const headers = data[0];
-                const rows = data.slice(1).filter(row => row.some(cell => cell.trim() !== ''));
+                const rows = data.slice(1);
 
-                let tableHTML = '<div class="data-table-wrapper"><table class="data-table"><thead><tr>';
+                let tableHTML = '<table class="data-table"><thead><tr>';
                 headers.forEach(header => {
-                    tableHTML += `<th>${header || 'Column'}</th>`;
+                    tableHTML += `<th>${header}</th>`;
                 });
                 tableHTML += '</tr></thead><tbody>';
 
                 rows.forEach(row => {
                     tableHTML += '<tr>';
-                    headers.forEach((_, index) => {
-                        const cell = row[index] || '';
-                        tableHTML += `<td title="${cell}">${cell}</td>`;
+                    row.forEach(cell => {
+                        tableHTML += `<td>${cell}</td>`;
                     });
                     tableHTML += '</tr>';
                 });
 
-                tableHTML += '</tbody></table></div>';
+                tableHTML += '</tbody></table>';
                 
                 document.getElementById('dataPreviewContainer').innerHTML = tableHTML;
                 switchTab('data', document.querySelectorAll('.tab')[3]);
@@ -971,7 +909,7 @@
                     .map(row => `<tr>${row.map(c => `<td>${escapeHtml(c || '') || '&nbsp;'}</td>`).join("")}</tr>`)
                     .join("");
 
-                return `<div class="data-table-wrapper"><table class="data-table">${thead}<tbody>${tbody}</tbody></table></div>`;
+                return `<table class="data-table">${thead}<tbody>${tbody}</tbody></table>`;
             }
 
             const lines = markdownText.replace(/\r\n/g, "\n").split("\n");

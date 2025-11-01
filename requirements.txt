@@ -14,3 +14,4 @@ aiofiles
 slowapi
 xgboost
 python-multipart
+filelock
