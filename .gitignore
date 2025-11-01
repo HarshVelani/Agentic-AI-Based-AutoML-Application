@@ -13,8 +13,8 @@ backend/uploads
 backend/workflow_info
 backend/session_data
 backend/test.py
-session_data/sessions_backup.json
-session_data/sessions.xlsx
+backend/session_data/sessions_backup.json
+backend/session_data/sessions.xlsx
 .env
 myenv
 Future_Enhancements.md
